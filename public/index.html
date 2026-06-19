@@ -162,6 +162,9 @@
             <button class="nav-item" data-tab="owner-teles" onclick="switchDashboardTab('owner-teles')">
               <i data-lucide="list-checks"></i> Gestão de Teles
             </button>
+            <button class="nav-item" data-tab="owner-integracoes" onclick="switchDashboardTab('owner-integracoes')">
+              <i data-lucide="plug-zap"></i> Integrações
+            </button>
             <button class="nav-item" data-tab="owner-fleet" onclick="switchDashboardTab('owner-fleet')">
               <i data-lucide="bike"></i> Frota & Motoboys
             </button>
@@ -461,6 +464,74 @@
               <div class="active-deliveries-grid" id="active-deliveries-container">
                 <!-- Rendered dynamically via JS -->
               </div>
+            </div>
+          </div>
+
+          <!-- 1d. Owner Integrações (iFood / 99Food) -->
+          <div id="tab-owner-integracoes" class="dashboard-tab-content">
+            <div class="section-header" style="margin-bottom: 20px;">
+              <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Integrações de Pedidos</h3>
+              <p class="text-muted">Conecte os apps de delivery. Os pedidos do iFood e 99Food entram automaticamente na Gestão de Teles.</p>
+            </div>
+
+            <div class="integrations-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; max-width: 920px;">
+
+              <!-- ===== 99Food ===== -->
+              <div class="card" style="border: 1px solid var(--border-color); border-top: 4px solid #ffd100; display: flex; flex-direction: column;">
+                <div class="card-body" style="display: flex; flex-direction: column; gap: 14px;">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 46px; height: 46px; border-radius: 12px; background: #ffd100; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-family: var(--font-display); font-weight: 800; font-size: 0.8rem; color: #000; letter-spacing: -0.5px;">99</div>
+                    <div>
+                      <h3 style="font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; color: var(--color-text); margin: 0;">99Food</h3>
+                      <p class="text-muted" style="margin: 2px 0 0 0; font-size: 0.82rem;">Conectar uma loja</p>
+                    </div>
+                    <span class="badge" id="status-99food" style="margin-left: auto; background: rgba(255,255,255,0.06); color: var(--color-text-muted);">Não conectada</span>
+                  </div>
+
+                  <p class="text-muted" style="font-size: 0.85rem; line-height: 1.5; margin: 0;">Gere o link e envie ao gerente da loja. Ele autoriza dentro do 99Food. O link vale 7 dias.</p>
+
+                  <button type="button" class="btn btn-primary" id="btn-99food-gerar" onclick="gerarLink99food()" style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <i data-lucide="link" style="width: 16px; height: 16px;"></i> <span>Gerar link de conexão</span>
+                  </button>
+
+                  <div id="99food-link-wrapper" class="hidden" style="display: flex; gap: 8px;">
+                    <input type="text" id="99food-link-input" readonly onfocus="this.select()" style="flex: 1; min-width: 0; padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.78rem; outline: none;">
+                    <button type="button" class="btn btn-secondary" id="btn-99food-copiar" onclick="copiarLink99food()" style="flex-shrink: 0; padding: 0 14px;">Copiar</button>
+                  </div>
+
+                  <p id="99food-erro" class="hidden" style="font-size: 0.82rem; color: #ff5470; margin: 0;"></p>
+
+                  <div style="border-top: 1px solid var(--border-color); padding-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+                    <p class="text-muted" style="font-size: 0.82rem; margin: 0;"><strong style="color: var(--color-text);">Depois que a loja autorizar</strong>, configure (deixa online + confirmação pelo sistema).</p>
+                    <button type="button" class="btn btn-secondary" id="btn-99food-config" onclick="configurar99food()" style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                      <i data-lucide="settings-2" style="width: 16px; height: 16px;"></i> <span>Configurar loja vinculada</span>
+                    </button>
+                    <p id="99food-setup-msg" class="hidden text-muted" style="font-size: 0.82rem; margin: 0;"></p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ===== iFood ===== -->
+              <div class="card" style="border: 1px solid var(--border-color); border-top: 4px solid #ea1d2c; display: flex; flex-direction: column; opacity: 0.92;">
+                <div class="card-body" style="display: flex; flex-direction: column; gap: 14px;">
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="width: 46px; height: 46px; border-radius: 12px; background: #ea1d2c; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                      <i data-lucide="utensils-crossed" style="width: 22px; height: 22px; color: #fff;"></i>
+                    </div>
+                    <div>
+                      <h3 style="font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; color: var(--color-text); margin: 0;">iFood</h3>
+                      <p class="text-muted" style="margin: 2px 0 0 0; font-size: 0.82rem;">Conectar uma loja</p>
+                    </div>
+                    <span class="badge" style="margin-left: auto; background: rgba(255, 170, 0, 0.12); color: #ffaa00;">Em homologação</span>
+                  </div>
+
+                  <div style="display: flex; gap: 10px; align-items: flex-start; padding: 14px; background: rgba(255, 170, 0, 0.05); border: 1px solid rgba(255, 170, 0, 0.2); border-radius: var(--border-radius-sm);">
+                    <i data-lucide="clock" style="color: #ffaa00; width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;"></i>
+                    <p class="text-muted" style="font-size: 0.85rem; line-height: 1.5; margin: 0;">Em processo de homologação no iFood. A conexão de lojas será liberada automaticamente assim que o app for aprovado.</p>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
 

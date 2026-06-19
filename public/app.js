@@ -462,6 +462,8 @@ async function switchDashboardTab(targetTab) {
     await fetchFleet();
     renderRiderSettings();
     renderRiderLimits();
+  } else if (targetTab === 'owner-integracoes') {
+    if (window.lucide) lucide.createIcons();
   } else if (targetTab === 'client-overview') {
     initClientOverviewChart();
   } else if (targetTab === 'client-history') {
@@ -481,6 +483,101 @@ async function switchDashboardTab(targetTab) {
     if (dot) dot.classList.add('hidden');
     await loadAdminChatChannels();
     subscribeSupportRealtime();
+  }
+}
+
+/* ============================================================
+   INTEGRAÇÕES (iFood / 99Food) — chamam as Edge Functions
+   ============================================================ */
+const FUNCTIONS_BASE = `${supabaseUrl}/functions/v1`;
+
+// Chama uma Edge Function. Só manda Authorization (anon) + Content-Type.
+// Tenta de novo algumas vezes por causa do "cold start" (primeira chamada demora).
+async function invokeFn(nome, body = {}, tentativas = 3) {
+  let ultimoErro = null;
+  for (let i = 0; i < tentativas; i++) {
+    try {
+      const resp = await fetch(`${FUNCTIONS_BASE}/${nome}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const txt = await resp.text();
+      let data = {};
+      try { data = txt ? JSON.parse(txt) : {}; } catch (_) { data = { raw: txt }; }
+      if (!resp.ok || data.ok === false) {
+        throw new Error(data.erro || data.raw || `HTTP ${resp.status}`);
+      }
+      return data;
+    } catch (err) {
+      ultimoErro = err;
+      // espera curtinha antes de tentar de novo (cold start)
+      if (i < tentativas - 1) await new Promise(r => setTimeout(r, 1200));
+    }
+  }
+  throw ultimoErro || new Error('Falha na requisição');
+}
+
+async function gerarLink99food() {
+  const btn = document.getElementById('btn-99food-gerar');
+  const erroEl = document.getElementById('99food-erro');
+  const wrapper = document.getElementById('99food-link-wrapper');
+  const input = document.getElementById('99food-link-input');
+  if (erroEl) { erroEl.classList.add('hidden'); erroEl.innerText = ''; }
+  if (btn) { btn.disabled = true; btn.querySelector('span').innerText = 'Gerando…'; }
+  try {
+    const r = await invokeFn('food99-vincular', {});
+    if (!r.url) throw new Error('O 99Food não retornou um link. Verifique o app no portal.');
+    if (input) input.value = r.url;
+    if (wrapper) wrapper.classList.remove('hidden');
+  } catch (err) {
+    if (erroEl) { erroEl.classList.remove('hidden'); erroEl.innerText = 'Erro: ' + (err.message || err); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.querySelector('span').innerText = 'Gerar link de conexão'; }
+  }
+}
+
+function copiarLink99food() {
+  const input = document.getElementById('99food-link-input');
+  const btn = document.getElementById('btn-99food-copiar');
+  if (!input || !input.value) return;
+  navigator.clipboard.writeText(input.value).then(() => {
+    if (btn) {
+      btn.innerText = 'Copiado!';
+      setTimeout(() => { btn.innerText = 'Copiar'; }, 2000);
+    }
+  });
+}
+
+async function configurar99food() {
+  const btn = document.getElementById('btn-99food-config');
+  const msg = document.getElementById('99food-setup-msg');
+  const statusBadge = document.getElementById('status-99food');
+  if (msg) { msg.classList.add('hidden'); msg.innerText = ''; }
+  if (btn) { btn.disabled = true; btn.querySelector('span').innerText = 'Configurando…'; }
+  try {
+    const r = await invokeFn('food99-setup', {});
+    const configuradas = (r.configuradas || []).filter(c => c.online && c.confirm).length;
+    if (msg) {
+      msg.classList.remove('hidden');
+      if (!r.total) {
+        msg.innerText = 'Nenhuma loja vinculada ainda. Envie o link e peça pra loja autorizar.';
+      } else {
+        msg.innerText = `Pronto! ${configuradas} loja(s) online com confirmação pelo sistema.`;
+        if (statusBadge && configuradas > 0) {
+          statusBadge.innerText = 'Conectada';
+          statusBadge.style.background = 'rgba(16, 185, 129, 0.12)';
+          statusBadge.style.color = '#10b981';
+        }
+      }
+    }
+  } catch (err) {
+    if (msg) { msg.classList.remove('hidden'); msg.innerText = 'Erro: ' + (err.message || err); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.querySelector('span').innerText = 'Configurar loja vinculada'; }
   }
 }
 
