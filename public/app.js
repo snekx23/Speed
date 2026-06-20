@@ -302,10 +302,6 @@ function handleLogin(event) {
   }, 800);
 }
 
-// Direct quick login demo trigger
-function loginDemo() {
-  handleLogin(null);
-}
 
 // Successful login flow setup
 async function loginSuccess() {
