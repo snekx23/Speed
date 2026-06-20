@@ -1,0 +1,44 @@
+// Normaliza o detalhe de um pedido do iFood (GET /order/v1.0/orders/{id})
+// para o formato da nossa tabela `teles`. Tolerante a campos ausentes.
+
+export interface ItemPedido {
+  nome: string
+  qtd: number
+  obs?: string
+}
+
+export interface TeleIfood {
+  origem: 'ifood'
+  external_id: string
+  codigo: string
+  cliente_nome: string
+  endereco: string
+  lat: number | null
+  lng: number | null
+  valor: number | null
+  itens: ItemPedido[]
+}
+
+export function normalizarPedidoIfood(p: any): TeleIfood {
+  const addr = p?.delivery?.deliveryAddress ?? {}
+  const coords = addr?.coordinates ?? {}
+  const endereco =
+    addr?.formattedAddress ||
+    [addr?.streetName, addr?.streetNumber, addr?.neighborhood].filter(Boolean).join(', ')
+
+  return {
+    origem: 'ifood',
+    external_id: String(p?.id ?? ''),
+    codigo: `#${p?.displayId ?? ''}`,
+    cliente_nome: p?.customer?.name ?? 'Cliente iFood',
+    endereco,
+    lat: coords?.latitude ?? null,
+    lng: coords?.longitude ?? null,
+    valor: p?.total?.orderAmount ?? p?.total?.subTotal ?? null,
+    itens: (p?.items ?? []).map((it: any) => ({
+      nome: it?.name ?? 'Item',
+      qtd: it?.quantity ?? 1,
+      obs: it?.observations || undefined,
+    })),
+  }
+}
