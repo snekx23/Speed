@@ -1,5 +1,5 @@
 // Garra Motoboy PWA — Service Worker
-const CACHE_NAME = 'garra-moto-v23';
+const CACHE_NAME = 'garra-moto-v24';
 
 // App shell assets to cache on install
 const SHELL_ASSETS = [
@@ -7,7 +7,7 @@ const SHELL_ASSETS = [
   '/motoboy.html',
   '/motoboy.js',
   '/manifest.json',
-  '/logo.jpg',
+  '/logo.png',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://unpkg.com/lucide@latest',

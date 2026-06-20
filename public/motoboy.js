@@ -68,18 +68,18 @@ function sendWebNotification(title, body) {
     navigator.serviceWorker.ready.then(reg => {
       reg.showNotification(title, {
         body: body,
-        icon: '/logo.jpg',
-        badge: '/logo.jpg',
+        icon: '/logo.png',
+        badge: '/logo.png',
         vibrate: [200, 100, 200],
         tag: 'speed-delivery-notif',
         renotify: true
       });
     }).catch(err => {
       console.warn("ServiceWorker notification failed, fallback to Notification construct:", err);
-      new Notification(title, { body, icon: '/logo.jpg' });
+      new Notification(title, { body, icon: '/logo.png' });
     });
   } else {
-    new Notification(title, { body, icon: '/logo.jpg' });
+    new Notification(title, { body, icon: '/logo.png' });
   }
 }
 
