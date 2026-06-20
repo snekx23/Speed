@@ -16,13 +16,13 @@
   --color-text-muted: #8e8e9f;
   --color-text-dark: #09090b;
 
-  --primary: #ff00aa;
-  --primary-hover: #d6008f;
-  --primary-glow: rgba(255, 0, 170, 0.15);
+  --primary: #ffb700;
+  --primary-hover: #e0a300;
+  --primary-glow: rgba(255, 183, 0, 0.15);
   
-  --accent-cyan: #00aeef;
-  --accent-cyan-hover: #0096ce;
-  --accent-cyan-glow: rgba(0, 174, 239, 0.15);
+  --accent-cyan: #f97316;
+  --accent-cyan-hover: #ea580c;
+  --accent-cyan-glow: rgba(249, 115, 22, 0.15);
   
   --secondary: #272730;
   --secondary-hover: #353542;
@@ -31,18 +31,18 @@
   --success-glow: rgba(16, 185, 129, 0.15);
   --error: #ef4444;
   --warning: #f59e0b;
-  --info: #00aeef;
+  --info: #f97316;
 
   /* Borders & Shadows */
   --border-color: #272732;
-  --border-color-focus: #ff00aa;
+  --border-color-focus: #ffb700;
   --border-radius-sm: 8px;
   --border-radius-md: 12px;
   --border-radius-lg: 20px;
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.4);
-  --shadow-glow: 0 0 20px rgba(255, 0, 170, 0.2);
+  --shadow-glow: 0 0 20px rgba(255, 183, 0, 0.2);
 
   /* Transitions */
   --transition-fast: 0.2s ease;
@@ -242,8 +242,8 @@ svg {
 
 /* ================= LANDING PAGE & NAVBAR ================= */
 #view-landing {
-  background: radial-gradient(circle at top right, rgba(255, 0, 170, 0.08), transparent 60%),
-              radial-gradient(circle at bottom left, rgba(0, 174, 239, 0.08), transparent 50%),
+  background: radial-gradient(circle at top right, rgba(255, 183, 0, 0.08), transparent 60%),
+              radial-gradient(circle at bottom left, rgba(249, 115, 22, 0.08), transparent 50%),
               var(--bg-app);
 }
 

@@ -17,7 +17,7 @@ const mockData = {
   fleet: [],
   clientHistory: [],
   credentials: {
-    owner: { email: 'admin@speedlog.com.br', pass: 'admin123', name: 'Gustavo Souza', role: 'Dono & CEO', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?q=80&w=256&auto=format&fit=crop' },
+    owner: { email: 'admin@garradelivery.com.br', pass: 'admin123', name: 'Gustavo Souza', role: 'Dono & CEO', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?q=80&w=256&auto=format&fit=crop' },
     client: { email: 'gerente@burgerchef.com.br', pass: 'burger123', name: 'Roberto Heinz', role: 'Gerente - Burger Chef', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop' },
     order: { email: 'pedido@burgerchef.com.br', pass: 'express123', name: 'Roberto Heinz', role: 'Gerente - Burger Chef', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop' }
   },
@@ -282,7 +282,7 @@ function switchLoginTab(profile) {
     usernameLabel.innerText = 'E-mail do Administrador';
     usernameInput.type = 'email';
     usernameInput.value = profileCreds.email;
-    usernameInput.placeholder = 'admin@speedlog.com.br';
+    usernameInput.placeholder = 'admin@garradelivery.com.br';
     passwordInput.value = profileCreds.pass;
     passwordGroup.style.display = 'flex';
   }
@@ -336,7 +336,7 @@ async function loginSuccess() {
   if (profile === 'owner') {
     document.getElementById('display-role').innerText = 'Painel do Dono';
     document.getElementById('nav-owner-group').classList.remove('hidden');
-    document.getElementById('dashboard-title').innerText = 'Painel de Logística Speed';
+    document.getElementById('dashboard-title').innerText = 'Painel de Logística Garra';
     document.getElementById('dashboard-subtitle').innerText = 'Acompanhe a atividade em tempo real de toda a empresa.';
     
     // Fetch initial owner data from Supabase
@@ -1423,8 +1423,8 @@ function initOwnerOverviewChart() {
       datasets: [{
         label: 'Entregas Concluídas',
         data: [1200, 1420, 1310, 1580, 1920, 1842, 1100],
-        borderColor: '#ff00aa',
-        backgroundColor: 'rgba(255, 0, 170, 0.1)',
+        borderColor: '#ffb700',
+        backgroundColor: 'rgba(255, 183, 0, 0.1)',
         borderWidth: 3,
         fill: true,
         tension: 0.4
@@ -1462,10 +1462,10 @@ function initOwnerFinancialChart() {
   ownerFinancialChart = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: ['Repasse Motoboys', 'Comissão Speed', 'Seguros / Taxas'],
+      labels: ['Repasse Motoboys', 'Comissão Garra', 'Seguros / Taxas'],
       datasets: [{
         data: [71, 24, 5],
-        backgroundColor: ['#ff00aa', '#00aeef', '#10b981'],
+        backgroundColor: ['#ffb700', '#f97316', '#10b981'],
         borderWidth: 0
       }]
     },
@@ -1505,7 +1505,7 @@ function initClientOverviewChart() {
         {
           label: 'Tempo Real (min)',
           data: [16, 15, 17, 19, 21, 20, 18],
-          backgroundColor: '#ff00aa',
+          backgroundColor: '#ffb700',
           borderRadius: 4
         }
       ]
@@ -1619,12 +1619,12 @@ function renderMapMarkers(centerCoords) {
 
   // Fallback demo riders when Supabase does not return fleet rows.
   const demoRidersLocations = [
-    { name: 'Carlos Oliveira', vehicle: 'Honda CG 160 Fan', plate: 'ABC-1234', status: 'A caminho da coleta', statusColor: '#ff00aa', offset: offsets[0] },
-    { name: 'Marcos Santos', vehicle: 'Yamaha YZF-R3', plate: 'XYZ-9876', status: 'Em rota de entrega', statusColor: '#ff00aa', offset: offsets[1] },
-    { name: 'Julia Costa', vehicle: 'Shineray XY 50', plate: 'MNO-5432', status: 'Disponível', statusColor: '#00aeef', offset: offsets[2] },
+    { name: 'Carlos Oliveira', vehicle: 'Honda CG 160 Fan', plate: 'ABC-1234', status: 'A caminho da coleta', statusColor: '#ffb700', offset: offsets[0] },
+    { name: 'Marcos Santos', vehicle: 'Yamaha YZF-R3', plate: 'XYZ-9876', status: 'Em rota de entrega', statusColor: '#ffb700', offset: offsets[1] },
+    { name: 'Julia Costa', vehicle: 'Shineray XY 50', plate: 'MNO-5432', status: 'Disponível', statusColor: '#f97316', offset: offsets[2] },
     { name: 'Roberto Lima', vehicle: 'Honda Biz 125', plate: 'PQR-8765', status: 'Em Descanso', statusColor: '#8e8e9f', offset: offsets[3] },
-    { name: 'Aline Dias', vehicle: 'Voltz EVS (Elétrica)', plate: 'ELE-2026', status: 'Em rota de entrega', statusColor: '#ff00aa', offset: offsets[4] },
-    { name: 'Lucas Souza', vehicle: 'Yamaha Fazer 250', plate: 'DEF-4321', status: 'Disponível', statusColor: '#00aeef', offset: offsets[5] }
+    { name: 'Aline Dias', vehicle: 'Voltz EVS (Elétrica)', plate: 'ELE-2026', status: 'Em rota de entrega', statusColor: '#ffb700', offset: offsets[4] },
+    { name: 'Lucas Souza', vehicle: 'Yamaha Fazer 250', plate: 'DEF-4321', status: 'Disponível', statusColor: '#f97316', offset: offsets[5] }
   ];
   const ridersLocations = mockData.fleet.length
     ? mockData.fleet.map((rider, index) => ({
@@ -1633,7 +1633,7 @@ function renderMapMarkers(centerCoords) {
         vehicle: rider.vehicle,
         plate: rider.plate,
         status: rider.status,
-        statusColor: rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ff00aa' : '#00aeef'),
+        statusColor: rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ffb700' : '#f97316'),
         offset: offsets[index % offsets.length]
       }))
     : demoRidersLocations;
@@ -1644,7 +1644,7 @@ function renderMapMarkers(centerCoords) {
     const mockRider = mockData.fleet.find(r => r.name === rider.name);
     const currentStatus = mockRider ? mockRider.status : rider.status;
     const currentStatusColor = mockRider 
-      ? (mockRider.status === 'Em Descanso' ? '#8e8e9f' : (mockRider.statusClass === 'status-progress' ? '#ff00aa' : '#00aeef')) 
+      ? (mockRider.status === 'Em Descanso' ? '#8e8e9f' : (mockRider.statusClass === 'status-progress' ? '#ffb700' : '#f97316')) 
       : rider.statusColor;
 
     const riderCoords = [centerCoords[0] + rider.offset[0], centerCoords[1] + rider.offset[1]];
@@ -1718,7 +1718,7 @@ function renderMapMarkers(centerCoords) {
       <div class="map-popup-card">
         <h4>${escapeHtml(rider.name)}</h4>
         <p>${escapeHtml(rider.vehicle)} • <strong>${escapeHtml(rider.plate)}</strong></p>
-        <span class="status-indicator" style="display: inline-block; padding: 2px 8px; font-size: 0.7rem; border-radius: 10px; font-weight: 600; color: ${currentStatusColor === '#8e8e9f' ? 'var(--color-text-muted)' : (currentStatusColor === '#ff00aa' ? 'var(--primary)' : 'var(--accent-cyan)')}; background: ${currentStatusColor === '#8e8e9f' ? 'rgba(142, 142, 159, 0.15)' : (currentStatusColor === '#ff00aa' ? 'var(--primary-glow)' : 'var(--accent-cyan-glow)')};">${escapeHtml(currentStatus)}</span>
+        <span class="status-indicator" style="display: inline-block; padding: 2px 8px; font-size: 0.7rem; border-radius: 10px; font-weight: 600; color: ${currentStatusColor === '#8e8e9f' ? 'var(--color-text-muted)' : (currentStatusColor === '#ffb700' ? 'var(--primary)' : 'var(--accent-cyan)')}; background: ${currentStatusColor === '#8e8e9f' ? 'rgba(142, 142, 159, 0.15)' : (currentStatusColor === '#ffb700' ? 'var(--primary-glow)' : 'var(--accent-cyan-glow)')};">${escapeHtml(currentStatus)}</span>
         ${dispatchHtml}
       </div>
     `;
@@ -2656,7 +2656,7 @@ function createMessageBubble(msg, currentRole) {
   
   // Premium gradients/colors for bubbles
   const bubbleStyle = isMe 
-    ? 'background: linear-gradient(135deg, #00aeef, #0077b5); color: #ffffff; border-radius: 16px 16px 2px 16px; box-shadow: 0 4px 12px rgba(0, 174, 239, 0.25);'
+    ? 'background: linear-gradient(135deg, #f97316, #c2410c); color: #ffffff; border-radius: 16px 16px 2px 16px; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.25);'
     : 'background: #272732; border: 1px solid var(--border-color); color: var(--color-text); border-radius: 16px 16px 16px 2px;';
   
   const time = msg.created_at ? new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Agora';
@@ -3120,7 +3120,7 @@ function updateRequestDeliveryDestination(lat, lng, shouldCenter = false) {
   if (!requestDeliveryMap) return;
 
   const destIconHtml = `
-    <div class="custom-map-marker" style="background-color: #ff00aa; border-color: #ffffff; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px #ff00aa;">
+    <div class="custom-map-marker" style="background-color: #ffb700; border-color: #ffffff; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px #ffb700;">
     </div>
   `;
   const destIcon = L.divIcon({
@@ -3152,7 +3152,7 @@ function updateRequestDeliveryDestination(lat, lng, shouldCenter = false) {
     requestDeliveryRouteLine.setLatLngs([startCoords, [lat, lng]]);
   } else {
     requestDeliveryRouteLine = L.polyline([startCoords, [lat, lng]], {
-      color: '#ff00aa',
+      color: '#ffb700',
       dashArray: '5, 10',
       weight: 3
     }).addTo(requestDeliveryMap);
@@ -3351,7 +3351,7 @@ function initTrackingMap(pickupLat, pickupLng, destLat, destLng) {
   });
 
   const destIconHtml = `
-    <div class="custom-map-marker" style="background-color: #ff00aa; border-color: #ffffff; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px #ff00aa;">
+    <div class="custom-map-marker" style="background-color: #ffb700; border-color: #ffffff; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px #ffb700;">
     </div>
   `;
   const destIcon = L.divIcon({
@@ -3368,7 +3368,7 @@ function initTrackingMap(pickupLat, pickupLng, destLat, destLng) {
   trackingDestMarker.bindPopup('<strong style="color:var(--color-text);">Destino (Cliente)</strong>');
 
   trackingRouteLine = L.polyline([[pickupLat, pickupLng], [destLat, destLng]], {
-    color: '#ff00aa',
+    color: '#ffb700',
     dashArray: '5, 10',
     weight: 3
   }).addTo(trackingMapInstance);
@@ -3383,7 +3383,7 @@ function updateRiderMarker(lat, lng, riderName) {
   if (!trackingMapInstance || isNaN(lat) || isNaN(lng)) return;
 
   const riderIconHtml = `
-    <div style="width:24px;height:24px;background:#00aeef;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(0,174,239,0.7);display:flex;align-items:center;justify-content:center;">
+    <div style="width:24px;height:24px;background:#f97316;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(249,115,22,0.7);display:flex;align-items:center;justify-content:center;">
       <i data-lucide="bike" style="width:12px;height:12px;color:#fff;"></i>
     </div>
   `;

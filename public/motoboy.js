@@ -878,7 +878,7 @@ function placeRiderMarker(lat, lng) {
   if (!riderMap) return;
 
   const iconHtml = `
-    <div style="width:22px;height:22px;background:#ff00aa;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(255,0,170,0.7);display:flex;align-items:center;justify-content:center;">
+    <div style="width:22px;height:22px;background:#ffb700;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(255,183,0,0.7);display:flex;align-items:center;justify-content:center;">
       <div style="width:6px;height:6px;background:#fff;border-radius:50%;"></div>
     </div>
   `;
@@ -930,7 +930,7 @@ function showPWAToast(msg) {
   }
 
   const toast = document.createElement('div');
-  toast.style.cssText = 'background:#181820;border-left:4px solid #ff00aa;border:1px solid #272732;border-left:4px solid #ff00aa;color:#f4f4f5;padding:14px 18px;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,0.4);font-size:0.9rem;font-weight:500;text-align:center;';
+  toast.style.cssText = 'background:#181820;border-left:4px solid #ffb700;border:1px solid #272732;border-left:4px solid #ffb700;color:#f4f4f5;padding:14px 18px;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,0.4);font-size:0.9rem;font-weight:500;text-align:center;';
   toast.innerText = msg;
   container.appendChild(toast);
 

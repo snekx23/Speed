@@ -1,13 +1,13 @@
 {
-  "name": "Speed",
-  "short_name": "Speed",
-  "description": "App do entregador Speed Logística. Veja suas teles e acompanhe o mapa.",
+  "name": "Garra Delivery",
+  "short_name": "Garra",
+  "description": "App do entregador Garra Delivery. Veja suas teles e acompanhe o mapa.",
   "start_url": "/motoboy.html",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#09090b",
-  "theme_color": "#ff00aa",
+  "theme_color": "#ffb700",
   "icons": [
     {
       "src": "logo.jpg",

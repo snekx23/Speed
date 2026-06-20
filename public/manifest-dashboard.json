@@ -1,13 +1,13 @@
 {
-  "name": "Speed Logística — Painel",
-  "short_name": "Speed Painel",
-  "description": "Painel de Logística Speed. Controle de faturamento, frotas e despachos.",
+  "name": "Garra Delivery — Painel",
+  "short_name": "Garra Painel",
+  "description": "Painel de Logística Garra. Controle de faturamento, frotas e despachos.",
   "start_url": "/index.html",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#09090b",
-  "theme_color": "#ff00aa",
+  "theme_color": "#ffb700",
   "icons": [
     {
       "src": "logo.jpg",
