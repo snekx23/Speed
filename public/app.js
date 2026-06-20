@@ -156,11 +156,28 @@ async function fetchPendingDeliveries() {
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
-  // Register Service Worker for PWA
+  // Register Service Worker for PWA (com auto-atualização para nunca prender versão velha em cache)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
-      .then(reg => console.log('Service Worker do Painel registrado:', reg.scope))
+      .then(reg => {
+        reg.update(); // checa por nova versão a cada carregamento
+        // quando uma nova versão é encontrada, ativa assim que instalar
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (sw) sw.addEventListener('statechange', () => {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) sw.postMessage?.('skip-waiting');
+          });
+        });
+      })
       .catch(err => console.error('Erro ao registrar Service Worker do Painel:', err));
+
+    // recarrega 1x quando um service worker novo assume o controle (evita HTML/JS desencontrados)
+    let _swReloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (_swReloaded) return;
+      _swReloaded = true;
+      window.location.reload();
+    });
   }
 
   // Hide loader after a simulated 1.2s delay for premium entry feel
