@@ -1409,7 +1409,7 @@ function triggerAppInstall() {
 
 // Listen for successful installation
 window.addEventListener('appinstalled', () => {
-  showPWAToast('Aplicativo Speed instalado com sucesso!');
+  showPWAToast('Aplicativo Garra instalado com sucesso!');
   deferredPrompt = null;
   
   const loginInstallBtn = document.getElementById('pwa-install-app-btn');

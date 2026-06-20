@@ -483,6 +483,8 @@ async function switchDashboardTab(targetTab) {
     if (dot) dot.classList.add('hidden');
     await loadAdminChatChannels();
     subscribeSupportRealtime();
+  } else if (targetTab === 'download-app') {
+    if (window.lucide) lucide.createIcons();
   }
 }
 
@@ -789,7 +791,7 @@ function renderRiderPayments() {
         <td class="text-danger">- ${formatMoneyBR(discount)}</td>
         <td><strong class="text-yellow">${formatMoneyBR(net)}</strong></td>
         <td>${formatMoneyBR(avg)}</td>
-        <td><span class="status-indicator ${net > 0 ? 'status-progress' : 'status-neutral'}">${net > 0 ? 'Programado para quinta' : 'Sem valor'}</span></td>
+        <td><span class="status-indicator ${net > 0 ? 'status-progress' : 'status-neutral'}">${net > 0 ? 'Programado para quarta' : 'Sem valor'}</span></td>
       </tr>
     `;
   }).join('');
