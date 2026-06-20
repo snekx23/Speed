@@ -1,4 +1,4 @@
-// Speed Logística — Motoboy PWA Logic
+// Garra Delivery — Motoboy PWA Logic
 
 const SUPABASE_URL = 'https://evupemncvectyyeoeajz.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2dXBlbW5jdmVjdHl5ZW9lYWp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjEyOTEsImV4cCI6MjA5NjMzNzI5MX0.QKW38pTwzkkTUKZqz5JUopOws9ftWJBYHMF4xICxips';
@@ -719,7 +719,7 @@ function showPendingTeleModal(tele) {
   const priceEl = document.getElementById('pending-tele-price');
   
   if (idEl) idEl.innerText = tele.id || '';
-  if (clientEl) clientEl.innerText = tele.client || 'Speed Coleta';
+  if (clientEl) clientEl.innerText = tele.client || 'Garra Coleta';
   if (addressEl) addressEl.innerText = tele.address || 'Destino';
   if (distEl) distEl.innerText = tele.dist || '0 km';
   if (priceEl) priceEl.innerText = tele.price || 'R$ 0,00';

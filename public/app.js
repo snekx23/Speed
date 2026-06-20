@@ -1,4 +1,4 @@
-// Speed Logistics - Core Application Logic
+// Garra Delivery - Core Application Logic
 
 // Supabase Configuration
 const supabaseUrl = 'https://evupemncvectyyeoeajz.supabase.co';
@@ -2062,7 +2062,7 @@ function togglePinVisibility() {
 }
 
 function copyCredentials() {
-  const text = `Speed Logística — Acesso Motoboy\nNome: ${_currentCreds.name}\nID: ${_currentCreds.id}\nPIN: ${_currentCreds.pin}\nAcesso: https://speed01.guigui-couto23.workers.dev/motoboy.html`;
+  const text = `Garra Delivery — Acesso Motoboy\nNome: ${_currentCreds.name}\nID: ${_currentCreds.id}\nPIN: ${_currentCreds.pin}\nAcesso: https://garradelivery.guigui-couto23.workers.dev/motoboy.html`;
   navigator.clipboard.writeText(text).then(() => {
     showToastNotification('Credenciais copiadas!');
   }).catch(() => {
@@ -2079,7 +2079,7 @@ function copyCredentials() {
 
 function shareWhatsApp() {
   const text = encodeURIComponent(
-    `*Speed Logística — Seu Acesso*\n\nOlá, ${_currentCreds.name}! Suas credenciais de acesso ao app de motoboy são:\n\n*ID:* ${_currentCreds.id}\n*PIN:* ${_currentCreds.pin}\n\n*Link:* https://speed01.guigui-couto23.workers.dev/motoboy.html\n\n_Não compartilhe seu PIN com ninguém._`
+    `*Garra Delivery — Seu Acesso*\n\nOlá, ${_currentCreds.name}! Suas credenciais de acesso ao app de motoboy são:\n\n*ID:* ${_currentCreds.id}\n*PIN:* ${_currentCreds.pin}\n\n*Link:* https://garradelivery.guigui-couto23.workers.dev/motoboy.html\n\n_Não compartilhe seu PIN com ninguém._`
   );
   window.open(`https://wa.me/?text=${text}`, '_blank');
 }
@@ -2806,7 +2806,7 @@ async function loadAdminChatChannels() {
     (data || []).forEach(msg => {
       clientsMap[msg.client_email] = {
         email: msg.client_email,
-        name: msg.sender_role === 'client' ? msg.sender_name : (clientsMap[msg.client_email]?.name || 'Cliente Speed'),
+        name: msg.sender_role === 'client' ? msg.sender_name : (clientsMap[msg.client_email]?.name || 'Cliente Garra'),
         lastMessage: msg.message,
         time: new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       };
