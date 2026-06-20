@@ -4,7 +4,7 @@ Plataforma de logística de entregas (teles) com painel administrativo, área do
 parceiro/comércio e app do motoboy (PWA). Os pedidos podem ser criados
 manualmente ou chegar automaticamente das integrações **iFood** e **99Food**.
 
-🔗 **App no ar:** https://speed01.guigui-couto23.workers.dev
+🔗 **App no ar:** https://garradelivery.guigui-couto23.workers.dev
 
 ---
 
@@ -25,7 +25,7 @@ garradelivery/
 │   ├── functions/           # Edge Functions (iFood / 99Food) — ver supabase/README.md
 │   └── migrations/          # schema do banco
 ├── index.js                 # Cloudflare Worker (serve a pasta public/)
-├── wrangler.jsonc           # config do deploy (worker "speed01")
+├── wrangler.jsonc           # config do deploy (worker "garradelivery")
 └── vercel.json              # config de fallback (Vercel)
 ```
 
@@ -80,8 +80,8 @@ Depois abra `http://localhost:5599`.
 npx wrangler deploy
 ```
 
-Publica os arquivos de `public/` no worker `speed01`
-(https://speed01.guigui-couto23.workers.dev). Precisa estar logado na conta
+Publica os arquivos de `public/` no worker `garradelivery`
+(https://garradelivery.guigui-couto23.workers.dev). Precisa estar logado na conta
 Cloudflare dona do worker.
 
 ### Backend (Edge Functions do Supabase)
