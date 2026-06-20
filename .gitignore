@@ -18,3 +18,4 @@ setup-supabase.ps1
 !.dev.vars.example
 .env*
 !.env.example
+supabase/.temp/
