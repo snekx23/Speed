@@ -1220,9 +1220,9 @@
 
           <!-- 7. Admin Support Chat Tab -->
           <div id="tab-owner-support" class="dashboard-tab-content">
-            <div class="owner-chat-wrapper" style="display: grid; grid-template-columns: 280px 1fr; height: calc(100vh - 200px); min-height: 480px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius); overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
-              <!-- Conversations Sidebar (Left) -->
-              <div class="chat-sidebar-pane" style="border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--secondary); height: 100%;">
+            <div class="owner-chat-wrapper" style="display: flex; height: calc(100vh - 200px); min-height: 480px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius); overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
+               <!-- Conversations Sidebar (Left) -->
+              <div class="chat-sidebar-pane" style="width: 280px; flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--secondary); height: 100%;">
                 <div style="padding: 20px 16px; border-bottom: 1px solid var(--border-color);">
                   <h3 style="font-family: var(--font-display); font-size: 0.85rem; font-weight: 700; color: var(--color-text-muted); margin: 0; text-transform: uppercase; letter-spacing: 1px;">Conversas de Suporte</h3>
                 </div>
@@ -1232,7 +1232,7 @@
               </div>
               
               <!-- Active Conversation Pane (Right) -->
-              <div id="admin-active-chat-container" style="display: flex; flex-direction: column; background: rgba(0,0,0,0.15); height: 100%; position: relative;">
+              <div id="admin-active-chat-container" style="flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.15); height: 100%; position: relative;">
                 <!-- No Selection state -->
                 <div id="admin-chat-no-selection" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px; text-align: center; color: var(--color-text-muted); height: 100%;">
                   <i data-lucide="message-square" style="width: 48px; height: 48px; stroke-width: 1.5; color: var(--color-text-muted);"></i>
