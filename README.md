@@ -92,7 +92,7 @@ Veja o passo a passo em [`supabase/README.md`](supabase/README.md).
 
 ## Banco de dados (Supabase)
 
-- Projeto ref: `evupemncvectyyeoeajz`
+- Projeto ref: `faowxiyxjfogkoynsohj`
 - Tabelas principais: `pending_deliveries` (teles no pool), `fleet` (motoboys),
   `delivery_bids` (lances), `client_history`, `global_settings`, além das tabelas
   de apoio das integrações (`lojas`, `ifood_tokens`, `food99_tokens`, `webhook_logs`).

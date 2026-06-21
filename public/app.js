@@ -1,8 +1,8 @@
 // Garra Delivery - Core Application Logic
 
 // Supabase Configuration
-const supabaseUrl = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.url : 'https://evupemncvectyyeoeajz.supabase.co';
-const supabaseKey = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.key : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2dXBlbW5jdmVjdHl5ZW9lYWp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjEyOTEsImV4cCI6MjA5NjMzNzI5MX0.QKW38pTwzkkTUKZqz5JUopOws9ftWJBYHMF4xICxips';
+const supabaseUrl = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.url : 'https://faowxiyxjfogkoynsohj.supabase.co';
+const supabaseKey = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.key : 'sb_publishable_UFy_HB0JaKUVCvHUlHSQ0Q_2HFOk4_V';
 let supabaseClient = null;
 let maxSimultaneousDeliveries = 1;
 if (window.supabase) {

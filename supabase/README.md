@@ -8,8 +8,8 @@ Estas são as **Edge Functions** do Supabase que recebem os pedidos do iFood e d
 
 ## Projeto Supabase
 
-- ref: `evupemncvectyyeoeajz`
-- URL: `https://evupemncvectyyeoeajz.supabase.co`
+- ref: `faowxiyxjfogkoynsohj`
+- URL: `https://faowxiyxjfogkoynsohj.supabase.co`
 
 ## Funções
 
@@ -30,18 +30,18 @@ Estas são as **Edge Functions** do Supabase que recebem os pedidos do iFood e d
 export SUPABASE_ACCESS_TOKEN=<access_token_do_supabase>
 
 # o webhook do 99Food precisa do --no-verify-jwt
-npx supabase@latest functions deploy food99-webhook --project-ref evupemncvectyyeoeajz --no-verify-jwt
+npx supabase@latest functions deploy food99-webhook --project-ref faowxiyxjfogkoynsohj --no-verify-jwt
 
 # as demais:
 for fn in food99-vincular food99-setup food99-pedido ifood-conectar ifood-pedido ifood-polling; do
-  npx supabase@latest functions deploy "$fn" --project-ref evupemncvectyyeoeajz
+  npx supabase@latest functions deploy "$fn" --project-ref faowxiyxjfogkoynsohj
 done
 ```
 
 ## Webhook do 99Food (configurar no portal do 99Food)
 
 ```
-https://evupemncvectyyeoeajz.supabase.co/functions/v1/food99-webhook?token=<WEBHOOK_99FOOD_TOKEN>
+https://faowxiyxjfogkoynsohj.supabase.co/functions/v1/food99-webhook?token=<WEBHOOK_99FOOD_TOKEN>
 ```
 
 Os segredos (`FOOD99_APP_ID`, `FOOD99_SECRET`, `IFOOD_CLIENT_ID`, etc.) ficam em
