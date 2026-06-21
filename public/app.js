@@ -1,8 +1,8 @@
 // Garra Delivery - Core Application Logic
 
 // Supabase Configuration
-const supabaseUrl = 'https://evupemncvectyyeoeajz.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2dXBlbW5jdmVjdHl5ZW9lYWp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjEyOTEsImV4cCI6MjA5NjMzNzI5MX0.QKW38pTwzkkTUKZqz5JUopOws9ftWJBYHMF4xICxips';
+const supabaseUrl = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.url : 'https://evupemncvectyyeoeajz.supabase.co';
+const supabaseKey = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.key : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV2dXBlbW5jdmVjdHl5ZW9lYWp6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3NjEyOTEsImV4cCI6MjA5NjMzNzI5MX0.QKW38pTwzkkTUKZqz5JUopOws9ftWJBYHMF4xICxips';
 let supabaseClient = null;
 let maxSimultaneousDeliveries = 1;
 if (window.supabase) {
@@ -466,7 +466,9 @@ async function switchDashboardTab(targetTab) {
     await fetchFleet();
     renderFleetTable();
   } else if (targetTab === 'owner-financials') {
+    await fetchClientHistory();
     initOwnerFinancialChart();
+    renderOwnerFinancials();
   } else if (targetTab === 'owner-rider-payments') {
     await fetchFleet();
     await fetchClientHistory();
@@ -3626,3 +3628,87 @@ async function trackActiveOrder(orderId) {
   }
   switchDashboardTab('order-tracking');
 }
+
+// Owner Financials dynamic date range filters & rendering
+function renderOwnerFinancials() {
+  const startDateVal = document.getElementById('finance-start-date').value;
+  const endDateVal = document.getElementById('finance-end-date').value;
+  
+  let start = startDateVal ? new Date(startDateVal) : null;
+  let end = endDateVal ? new Date(endDateVal) : null;
+  
+  // Set start of day and end of day
+  if (start) start.setHours(0, 0, 0, 0);
+  if (end) end.setHours(23, 59, 59, 999);
+  
+  // Filter mockData.clientHistory for completed orders within range
+  const filteredOrders = mockData.clientHistory.filter(order => {
+    const isCompleted = order.status === 'Entregue' || order.status === 'Concluído';
+    if (!isCompleted) return false;
+    
+    if (!start && !end) return true;
+    
+    const orderDate = parseOrderDate(order.date);
+    if (start && orderDate < start) return false;
+    if (end && orderDate > end) return false;
+    return true;
+  });
+  
+  // Calculate metrics
+  let grossTotal = 0;
+  filteredOrders.forEach(order => {
+    grossTotal += parseMoneyBR(order.price);
+  });
+  
+  const netTotal = grossTotal * 0.90; // 90% goes to riders
+  const platformFee = grossTotal * 0.10; // 10% platform fee
+  
+  // Update UI cards
+  const grossEl = document.getElementById('finance-gross-total');
+  const netEl = document.getElementById('finance-net-total');
+  const platformEl = document.getElementById('finance-platform-fee');
+  
+  if (grossEl) grossEl.innerText = formatMoneyBR(grossTotal);
+  if (netEl) netEl.innerText = formatMoneyBR(netTotal);
+  if (platformEl) platformEl.innerText = formatMoneyBR(platformFee);
+  
+  // Update Doughnut Chart (Chart 2) if initialized
+  if (ownerFinancialChart) {
+    ownerFinancialChart.data.datasets[0].data = [netTotal, platformFee, 0];
+    ownerFinancialChart.update();
+  }
+  
+  // Update completed teles list in index.html
+  const tbody = document.getElementById('finance-history-table-body');
+  if (tbody) {
+    if (filteredOrders.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 24px;">
+            Nenhuma tele concluída encontrada para o período selecionado.
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = filteredOrders.map(order => `
+        <tr>
+          <td><strong>${order.id}</strong></td>
+          <td>${order.date}</td>
+          <td>
+            <strong>${order.destName}</strong>
+            <p class="text-muted" style="margin: 2px 0 0 0; font-size: 0.78rem;">${order.address}</p>
+          </td>
+          <td>${order.rider || '—'}</td>
+          <td><strong class="text-yellow">${order.price}</strong></td>
+        </tr>
+      `).join('');
+    }
+  }
+}
+
+function clearFinanceFilters() {
+  document.getElementById('finance-start-date').value = '';
+  document.getElementById('finance-end-date').value = '';
+  renderOwnerFinancials();
+}
+

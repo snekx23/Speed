@@ -630,6 +630,28 @@
 
           <!-- 3. Owner Financials -->
           <div id="tab-owner-financials" class="dashboard-tab-content">
+            <!-- Date Filter Card -->
+            <div class="card" style="margin-bottom: 20px;">
+              <div class="card-body" style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; padding: 16px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Data de Início</label>
+                  <input type="date" id="finance-start-date" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 160px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Data de Fim</label>
+                  <input type="date" id="finance-end-date" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 160px;">
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-primary" onclick="renderOwnerFinancials()" style="display: flex; align-items: center; gap: 8px; padding: 11px 16px; font-weight: 600; cursor: pointer;">
+                    <i data-lucide="filter" style="width: 16px; height: 16px;"></i> <span>Filtrar</span>
+                  </button>
+                  <button class="btn btn-secondary" onclick="clearFinanceFilters()" style="display: flex; align-items: center; gap: 8px; padding: 11px 16px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: var(--secondary); color: var(--color-text);">
+                    <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> <span>Limpar</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div class="metrics-grid">
               <div class="metric-card">
                 <div class="metric-card-header">
@@ -637,8 +659,8 @@
                   <i data-lucide="wallet" class="text-yellow"></i>
                 </div>
                 <div class="metric-card-body">
-                  <h3>R$ 115.420,00</h3>
-                  <p class="text-muted">Faturamento acumulado bruto</p>
+                  <h3 id="finance-gross-total">R$ 0,00</h3>
+                  <p class="text-muted">Faturamento bruto no período</p>
                 </div>
               </div>
               <div class="metric-card">
@@ -647,18 +669,18 @@
                   <i data-lucide="arrow-right-left" class="text-blue"></i>
                 </div>
                 <div class="metric-card-body">
-                  <h3>R$ 82.340,00</h3>
-                  <p class="text-muted">Repassado quinzenalmente</p>
+                  <h3 id="finance-net-total">R$ 0,00</h3>
+                  <p class="text-muted">Total repassado aos entregadores (90%)</p>
                 </div>
               </div>
               <div class="metric-card">
                 <div class="metric-card-header">
-                  <span>Margem Operacional</span>
+                  <span>Comissão Garra</span>
                   <i data-lucide="percent" class="text-green"></i>
                 </div>
                 <div class="metric-card-body">
-                  <h3>28.6%</h3>
-                  <p class="text-muted">Lucro líquido da administradora</p>
+                  <h3 id="finance-platform-fee">R$ 0,00</h3>
+                  <p class="text-muted">Lucro líquido da administradora (10%)</p>
                 </div>
               </div>
             </div>
@@ -676,47 +698,25 @@
                 </div>
               </div>
 
-              <!-- Invoicing table -->
+              <!-- Completed Teles table -->
               <div class="card">
                 <div class="card-header">
-                  <h3>Faturas de Comércios Pendentes</h3>
+                  <h3>Teles Concluídas no Período</h3>
                 </div>
                 <div class="card-body no-padding">
-                  <div class="table-responsive">
+                  <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
                     <table class="table">
                       <thead>
                         <tr>
-                          <th>Estabelecimento</th>
-                          <th>Valor Fatura</th>
-                          <th>Data Venc.</th>
-                          <th>Status</th>
+                          <th>ID</th>
+                          <th>Data</th>
+                          <th>Estabelecimento / Destino</th>
+                          <th>Motoboy</th>
+                          <th>Valor</th>
                         </tr>
                       </thead>
-                      <tbody>
-                        <tr>
-                          <td><strong>Burger do Chef & Cia</strong></td>
-                          <td>R$ 1.420,00</td>
-                          <td>10/06/2026</td>
-                          <td><span class="status-indicator status-progress">Fechando</span></td>
-                        </tr>
-                        <tr>
-                          <td><strong>Pizzaria Bella Italia</strong></td>
-                          <td>R$ 980,00</td>
-                          <td>10/06/2026</td>
-                          <td><span class="status-indicator status-progress">Fechando</span></td>
-                        </tr>
-                        <tr>
-                          <td><strong>Subway Grill Express</strong></td>
-                          <td>R$ 870,50</td>
-                          <td>10/06/2026</td>
-                          <td><span class="status-indicator status-progress">Fechando</span></td>
-                        </tr>
-                        <tr>
-                          <td><strong>Japa House Sushi</strong></td>
-                          <td>R$ 412,00</td>
-                          <td>10/06/2026</td>
-                          <td><span class="status-indicator status-success">Pago</span></td>
-                        </tr>
+                      <tbody id="finance-history-table-body">
+                        <!-- Rendered dynamically via JS -->
                       </tbody>
                     </table>
                   </div>
@@ -1749,6 +1749,7 @@
     </div>
   </div>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
