@@ -124,7 +124,8 @@ async function fetchClientHistory() {
       price: escapeHtml(item.price),
       date: escapeHtml(item.date),
       status: escapeHtml(item.status),
-      statusClass: escapeHtml(item.status_class)
+      statusClass: escapeHtml(item.status_class),
+      payment_status: escapeHtml(item.payment_status || 'Pendente')
     }));
   } catch (err) {
     console.error("Error fetching client history from Supabase:", err);
@@ -472,7 +473,9 @@ async function switchDashboardTab(targetTab) {
   } else if (targetTab === 'owner-rider-payments') {
     await fetchFleet();
     await fetchClientHistory();
+    initRiderPaymentDates();
     renderRiderPayments();
+    populateRiderSearchDropdown();
   } else if (targetTab === 'owner-settings') {
     await fetchFleet();
     renderRiderSettings();
@@ -769,46 +772,105 @@ function renderRiderPayments() {
   const tbody = document.getElementById('rider-payments-table-body');
   if (!tbody) return;
 
-  const totals = new Map();
-  mockData.fleet.forEach(rider => totals.set(rider.name, { rider, count: 0, total: 0 }));
+  const startDateVal = document.getElementById('rider-payment-start-date').value;
+  const endDateVal = document.getElementById('rider-payment-end-date').value;
+  const searchVal = document.getElementById('rider-search-input').value.trim().toLowerCase();
 
+  let start = startDateVal ? new Date(startDateVal) : null;
+  let end = endDateVal ? new Date(endDateVal) : null;
+
+  if (start) start.setHours(0, 0, 0, 0);
+  if (end) end.setHours(23, 59, 59, 999);
+
+  // Set the range label dynamically
+  const rangeEl = document.getElementById('rider-week-range');
+  if (rangeEl) {
+    if (start && end) {
+      const fmt = { day: '2-digit', month: '2-digit' };
+      rangeEl.innerText = `${start.toLocaleDateString('pt-BR', fmt)} a ${end.toLocaleDateString('pt-BR', fmt)}`;
+    } else {
+      rangeEl.innerText = 'Todo o Período';
+    }
+  }
+
+  // Initialize map of rider totals
+  const totals = new Map();
+  mockData.fleet.forEach(rider => {
+    if (searchVal && !rider.name.toLowerCase().includes(searchVal)) {
+      return;
+    }
+    totals.set(rider.name, { rider, count: 0, total: 0, payments: [] });
+  });
+
+  // Filter and group clientHistory orders in the range
   mockData.clientHistory
-    .filter(order => order.status === 'Entregue' && isOrderInCurrentWeek(order))
+    .filter(order => {
+      const isCompleted = order.status === 'Entregue' || order.status === 'Concluído';
+      if (!isCompleted) return false;
+
+      // Filter by date
+      if (start || end) {
+        const orderDate = parseOrderDate(order.date);
+        if (start && orderDate < start) return false;
+        if (end && orderDate > end) return false;
+      }
+
+      // Filter by rider search name
+      if (searchVal && !order.rider.toLowerCase().includes(searchVal)) {
+        return false;
+      }
+
+      return true;
+    })
     .forEach(order => {
       if (!totals.has(order.rider)) {
-        totals.set(order.rider, { rider: { name: order.rider, id: '—' }, count: 0, total: 0 });
+        if (searchVal && !order.rider.toLowerCase().includes(searchVal)) return;
+        totals.set(order.rider, { rider: { name: order.rider, id: '—' }, count: 0, total: 0, payments: [] });
       }
       const item = totals.get(order.rider);
       item.count += 1;
       item.total += parseMoneyBR(order.price);
+      item.payments.push(order);
     });
 
   const rows = Array.from(totals.values()).sort((a, b) => b.total - a.total);
   const grandTotalGross = rows.reduce((sum, row) => sum + row.total, 0);
   const grandTotalNet = grandTotalGross * 0.90; // Apply 10% discount
+  
   const totalEl = document.getElementById('rider-week-total');
-  const rangeEl = document.getElementById('rider-week-range');
   if (totalEl) totalEl.innerText = formatMoneyBR(grandTotalNet);
-  if (rangeEl) rangeEl.innerText = getCurrentWeekRangeLabel();
 
   tbody.innerHTML = rows.map(row => {
     const gross = row.total;
     const discount = gross * 0.10;
     const net = gross * 0.90;
     const avg = row.count ? gross / row.count : 0;
-    
+
+    // A rider is considered Paid in this period if they have orders and all of them are marked 'Pago'
+    let isPaid = false;
+    if (row.payments.length > 0) {
+      isPaid = row.payments.every(order => order.payment_status === 'Pago');
+    }
+
+    const selectHtml = `
+      <select onchange="updateRiderPaymentStatus('${escapeHtml(row.rider.name)}', this.value)" style="padding: 6px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: ${isPaid ? '#10b981' : '#f59e0b'}; font-weight: 600; outline: none; cursor: pointer; font-size: 0.85rem;">
+        <option value="Pendente" ${!isPaid ? 'selected' : ''} style="color: #f59e0b; background: var(--card-bg); font-weight: 600;">Pendente</option>
+        <option value="Pago" ${isPaid ? 'selected' : ''} style="color: #10b981; background: var(--card-bg); font-weight: 600;">Pago</option>
+      </select>
+    `;
+
     return `
       <tr>
         <td>
           <strong>${escapeHtml(row.rider.name)}</strong>
-          <p class="text-muted">${escapeHtml(row.rider.id) || '—'}</p>
+          <p class="text-muted" style="margin: 2px 0 0 0; font-size: 0.78rem;">${escapeHtml(row.rider.id) || '—'}</p>
         </td>
         <td>${row.count}</td>
         <td>${formatMoneyBR(gross)}</td>
         <td class="text-danger">- ${formatMoneyBR(discount)}</td>
         <td><strong class="text-yellow">${formatMoneyBR(net)}</strong></td>
         <td>${formatMoneyBR(avg)}</td>
-        <td><span class="status-indicator ${net > 0 ? 'status-progress' : 'status-neutral'}">${net > 0 ? 'Programado para quarta' : 'Sem valor'}</span></td>
+        <td>${selectHtml}</td>
       </tr>
     `;
   }).join('');
@@ -3710,5 +3772,180 @@ function clearFinanceFilters() {
   document.getElementById('finance-start-date').value = '';
   document.getElementById('finance-end-date').value = '';
   renderOwnerFinancials();
+}
+
+// Helper to format date to YYYY-MM-DD
+function formatDateISO(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Pre-fill dates for Rider Payment range
+function initRiderPaymentDates() {
+  const startEl = document.getElementById('rider-payment-start-date');
+  const endEl = document.getElementById('rider-payment-end-date');
+  if (startEl && !startEl.value) {
+    const { monday } = getCurrentWeekBounds();
+    startEl.value = formatDateISO(monday);
+  }
+  if (endEl && !endEl.value) {
+    const { sunday } = getCurrentWeekBounds();
+    endEl.value = formatDateISO(sunday);
+  }
+}
+
+// Clear all rider payment filters
+function clearRiderPaymentFilters() {
+  const startEl = document.getElementById('rider-payment-start-date');
+  const endEl = document.getElementById('rider-payment-end-date');
+  const searchEl = document.getElementById('rider-search-input');
+  
+  if (startEl) {
+    const { monday } = getCurrentWeekBounds();
+    startEl.value = formatDateISO(monday);
+  }
+  if (endEl) {
+    const { sunday } = getCurrentWeekBounds();
+    endEl.value = formatDateISO(sunday);
+  }
+  if (searchEl) {
+    searchEl.value = '';
+  }
+  
+  renderRiderPayments();
+}
+
+// Toggle display of custom rider search dropdown
+function toggleRiderSearchDropdown(show) {
+  const dropdown = document.getElementById('rider-search-dropdown');
+  const icon = document.querySelector('.rider-search-wrapper i[data-lucide="chevron-down"]');
+  if (!dropdown) return;
+  
+  if (show) {
+    dropdown.classList.remove('hidden');
+    if (icon) icon.style.transform = 'rotate(180deg)';
+  } else {
+    dropdown.classList.add('hidden');
+    if (icon) icon.style.transform = 'rotate(0deg)';
+  }
+}
+
+// Populate the floating dropdown of motoboys
+function populateRiderSearchDropdown() {
+  const dropdown = document.getElementById('rider-search-dropdown');
+  if (!dropdown) return;
+
+  const searchInput = document.getElementById('rider-search-input');
+  const filterText = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  let html = `
+    <div onclick="selectRiderForPaymentSearch('')" style="padding: 10px 14px; cursor: pointer; transition: background 0.2s; font-size: 0.85rem; color: var(--color-text-muted);" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+      <em>Todos os entregadores</em>
+    </div>
+  `;
+
+  mockData.fleet
+    .filter(rider => !filterText || rider.name.toLowerCase().includes(filterText))
+    .forEach(rider => {
+      html += `
+        <div onclick="selectRiderForPaymentSearch('${escapeHtml(rider.name)}')" style="padding: 10px 14px; cursor: pointer; transition: background 0.2s; font-size: 0.85rem; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: ${rider.status === 'Disponível' ? '#10b981' : '#f59e0b'};"></div>
+          <strong>${escapeHtml(rider.name)}</strong> <span style="color: var(--color-text-muted); font-size: 0.78rem;">(${escapeHtml(rider.id)})</span>
+        </div>
+      `;
+    });
+
+  dropdown.innerHTML = html;
+}
+
+// Handle typing in search input to filter the list
+function filterRiderSearch() {
+  toggleRiderSearchDropdown(true);
+  populateRiderSearchDropdown();
+}
+
+// Select a rider from the dropdown list
+function selectRiderForPaymentSearch(name) {
+  const searchInput = document.getElementById('rider-search-input');
+  if (searchInput) {
+    searchInput.value = name;
+  }
+  toggleRiderSearchDropdown(false);
+  renderRiderPayments();
+}
+
+// Hide dropdown when clicking outside
+document.addEventListener('click', (e) => {
+  const wrapper = document.querySelector('.rider-search-wrapper');
+  if (wrapper && !wrapper.contains(e.target)) {
+    toggleRiderSearchDropdown(false);
+  }
+});
+
+// Update rider's consolidated payment status in Supabase for the selected date range
+async function updateRiderPaymentStatus(riderName, newStatus) {
+  const startDateVal = document.getElementById('rider-payment-start-date').value;
+  const endDateVal = document.getElementById('rider-payment-end-date').value;
+
+  let start = startDateVal ? new Date(startDateVal) : null;
+  let end = endDateVal ? new Date(endDateVal) : null;
+
+  if (start) start.setHours(0, 0, 0, 0);
+  if (end) end.setHours(23, 59, 59, 999);
+
+  // 1. Gather all completed order IDs for this rider in this date range
+  const filteredOrderIds = mockData.clientHistory
+    .filter(order => {
+      const isCompleted = order.status === 'Entregue' || order.status === 'Concluído';
+      if (!isCompleted) return false;
+      if (order.rider !== riderName) return false;
+
+      if (start || end) {
+        const orderDate = parseOrderDate(order.date);
+        if (start && orderDate < start) return false;
+        if (end && orderDate > end) return false;
+      }
+      return true;
+    })
+    .map(order => order.id);
+
+  if (filteredOrderIds.length === 0) {
+    alert(`Nenhuma entrega concluída encontrada para ${riderName} neste período.`);
+    renderRiderPayments();
+    return;
+  }
+
+  // 2. Perform Supabase update
+  if (supabaseClient) {
+    try {
+      const { error } = await supabaseClient
+        .from('client_history')
+        .update({ payment_status: newStatus })
+        .eq('rider', riderName)
+        .in('id', filteredOrderIds);
+
+      if (error) throw error;
+      
+      showToastNotification(`Pagamentos de ${riderName} marcados como ${newStatus}.`);
+    } catch (err) {
+      console.error("Error updating rider payment status on Supabase:", err);
+      alert("Erro ao atualizar o status de pagamento no Supabase.");
+      return;
+    }
+  } else {
+    // Offline fallback: update local mockData
+    showToastNotification(`Modo Offline: status de ${riderName} alterado para ${newStatus}.`);
+  }
+
+  // 3. Update local mockData and re-render
+  mockData.clientHistory.forEach(order => {
+    if (filteredOrderIds.includes(order.id)) {
+      order.payment_status = newStatus;
+    }
+  });
+
+  renderRiderPayments();
 }
 

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS public.client_history (
   date         TEXT,                                     -- Data legível ("Hoje, 19:30" ou "21/06/2026")
   status       TEXT,
   status_class TEXT,
+  payment_status TEXT NOT NULL DEFAULT 'Pendente',
   pickup_lat   DOUBLE PRECISION,
   pickup_lng   DOUBLE PRECISION,
   dest_lat     DOUBLE PRECISION,
