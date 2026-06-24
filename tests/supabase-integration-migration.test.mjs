@@ -18,3 +18,18 @@ test('target migration installs only the integration schema', async () => {
     /insert\s+into\s+public\.(fleet|client_history|pending_deliveries|support_messages)/,
   );
 });
+
+test('application and deployment docs target garradelivery Supabase', async () => {
+  const files = [
+    '../public/app.js',
+    '../public/motoboy.js',
+    '../README.md',
+    '../supabase/README.md',
+  ];
+
+  for (const relativePath of files) {
+    const content = await readFile(new URL(relativePath, import.meta.url), 'utf8');
+    assert.match(content, /faowxiyxjfogkoynsohj/);
+    assert.doesNotMatch(content, /evupemncvectyyeoeajz/);
+  }
+});
