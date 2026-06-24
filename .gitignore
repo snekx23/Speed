@@ -19,3 +19,4 @@ setup-supabase.ps1
 .env*
 !.env.example
 supabase/.temp/
+.worktrees/
