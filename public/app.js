@@ -453,6 +453,9 @@ async function switchDashboardTab(targetTab) {
 
   // Trigger specific tab initializers (like charts render)
   if (targetTab === 'owner-overview') {
+    await fetchFleet();
+    await fetchClientHistory();
+    renderOwnerOverviewMetrics();
     initOwnerOverviewChart();
   } else if (targetTab === 'owner-fleet-map') {
     await fetchFleet();
@@ -1493,6 +1496,39 @@ function runLogisticsSimulation(order) {
 
 /* ================= CHART INITIALIZATION ================= */
 
+function parseCurrencyBR(value) {
+  const raw = String(value || '').replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatCurrencyBR(value) {
+  return value > 0
+    ? value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+    : '—';
+}
+
+function renderOwnerOverviewMetrics() {
+  const completedOrders = mockData.clientHistory.filter(order => order.status === 'Entregue' || order.statusClass === 'status-success');
+  const grossTotal = completedOrders.reduce((sum, order) => sum + parseCurrencyBR(order.price), 0);
+  const activeRiders = mockData.fleet.filter(rider => rider.status && rider.status !== 'Em Descanso').length;
+  const today = new Date().toLocaleDateString('pt-BR');
+  const completedToday = completedOrders.filter(order => String(order.date || '').includes(today)).length;
+  const averageTicket = completedOrders.length ? grossTotal / completedOrders.length : 0;
+
+  const monthlyRevenueEl = document.getElementById('owner-monthly-revenue');
+  if (monthlyRevenueEl) monthlyRevenueEl.innerText = formatCurrencyBR(grossTotal);
+
+  const activeRidersEl = document.getElementById('owner-active-riders');
+  if (activeRidersEl) activeRidersEl.innerText = mockData.fleet.length ? String(activeRiders) : '—';
+
+  const completedTodayEl = document.getElementById('owner-completed-today');
+  if (completedTodayEl) completedTodayEl.innerText = completedToday ? String(completedToday) : '—';
+
+  const averageTicketEl = document.getElementById('owner-average-ticket');
+  if (averageTicketEl) averageTicketEl.innerText = formatCurrencyBR(averageTicket);
+}
+
 // Chart 1: Owner Overview deliveries
 function initOwnerOverviewChart() {
   const ctx = document.getElementById('ownerOverviewChart');
@@ -1508,7 +1544,7 @@ function initOwnerOverviewChart() {
       labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
       datasets: [{
         label: 'Entregas Concluídas',
-        data: [1200, 1420, 1310, 1580, 1920, 1842, 1100],
+        data: buildOwnerWeeklyDeliverySeries(),
         borderColor: '#ffb700',
         backgroundColor: 'rgba(255, 183, 0, 0.1)',
         borderWidth: 3,
@@ -1534,6 +1570,23 @@ function initOwnerOverviewChart() {
       }
     }
   });
+}
+
+function buildOwnerWeeklyDeliverySeries() {
+  const completedOrders = mockData.clientHistory.filter(order => order.status === 'Entregue' || order.statusClass === 'status-success');
+  const totals = [0, 0, 0, 0, 0, 0, 0];
+  const dayNames = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const labelIndex = { seg: 0, ter: 1, qua: 2, qui: 3, sex: 4, 'sáb': 5, sab: 5, dom: 6 };
+
+  completedOrders.forEach(order => {
+    const dateText = String(order.date || '').toLowerCase();
+    const dayLabel = dayNames.find(day => dateText.includes(day));
+    if (!dayLabel) return;
+    const index = labelIndex[dayLabel];
+    if (typeof index === 'number') totals[index] += 1;
+  });
+
+  return totals;
 }
 
 // Chart 2: Owner Financials doughnut

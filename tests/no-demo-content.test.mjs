@@ -37,3 +37,16 @@ test('production UI does not expose demo metrics or fake restaurant names', asyn
     assert.doesNotMatch(content, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 });
+
+test('owner overview keeps the original dashboard structure without demo values', async () => {
+  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const match = html.match(/<div id="tab-owner-overview"[\s\S]*?<!-- 1b\. Owner Fleet Map/);
+
+  assert.ok(match, 'owner overview block should exist');
+  const ownerOverview = match[0];
+
+  assert.match(ownerOverview, /class="metrics-grid"/);
+  assert.match(ownerOverview, /id="ownerOverviewChart"/);
+  assert.match(ownerOverview, /class="list-container"/);
+  assert.doesNotMatch(ownerOverview, /class="ops-hero"/);
+});

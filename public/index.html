@@ -280,101 +280,77 @@
           <!-- ================= DONO TABS ================= -->
           <!-- 1. Owner Overview -->
           <div id="tab-owner-overview" class="dashboard-tab-content active">
-            <section class="ops-hero">
-              <div class="ops-hero-content">
-                <span class="ops-eyebrow"><i data-lucide="radio-tower"></i> Operação Garra</span>
-                <h3 class="ops-hero-title">Controle a rotina de entregas sem ruído.</h3>
-                <p class="ops-hero-text">A visão geral reúne os caminhos principais do painel. Use a Gestão de Teles para despachar pedidos, acompanhe a frota no mapa e mantenha as integrações sob controle.</p>
+            <!-- Grid of Cards -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Faturamento Mensal</span>
+                  <i data-lucide="dollar-sign" class="text-yellow"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="owner-monthly-revenue">—</h3>
+                  <p class="growth-text neutral">Aguardando dados reais do financeiro</p>
+                </div>
               </div>
-              <div class="ops-status-chip">
-                <i data-lucide="shield-check"></i>
-                <span>Ambiente de produção</span>
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Entregadores na Rua</span>
+                  <i data-lucide="bike" class="text-blue"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="owner-active-riders">—</h3>
+                  <p class="growth-text neutral"><span class="pulse-dot inline"></span> Sincronizado pela frota cadastrada</p>
+                </div>
               </div>
-            </section>
-
-            <div class="ops-actions-grid">
-              <button type="button" class="ops-card ops-card-large" onclick="switchDashboardTab('owner-teles')">
-                <span class="ops-card-icon"><i data-lucide="list-checks"></i></span>
-                <h3>Gestão de Teles</h3>
-                <p>Veja pedidos pendentes e envie cada entrega para um entregador disponível.</p>
-              </button>
-              <button type="button" class="ops-card" onclick="switchDashboardTab('owner-integracoes')">
-                <span class="ops-card-icon"><i data-lucide="plug-zap"></i></span>
-                <h3>Integrações</h3>
-                <p>Conecte iFood e 99Food ao fluxo operacional da Garra.</p>
-              </button>
-              <button type="button" class="ops-card" onclick="switchDashboardTab('owner-fleet')">
-                <span class="ops-card-icon"><i data-lucide="bike"></i></span>
-                <h3>Frota & Entregadores</h3>
-                <p>Cadastre, revise acessos e acompanhe a equipe em campo.</p>
-              </button>
-              <button type="button" class="ops-card" onclick="switchDashboardTab('admin-support')">
-                <span class="ops-card-icon"><i data-lucide="messages-square"></i></span>
-                <h3>Suporte operacional</h3>
-                <p>Centralize conversas dos parceiros e responda pelo painel.</p>
-              </button>
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Entregas Concluídas Hoje</span>
+                  <i data-lucide="check-circle" class="text-green"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="owner-completed-today">—</h3>
+                  <p class="growth-text neutral">Atualiza quando houver entregas finalizadas</p>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Ticket Médio por Corrida</span>
+                  <i data-lucide="credit-card" class="text-purple"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="owner-average-ticket">—</h3>
+                  <p class="growth-text neutral">Calculado a partir das corridas reais</p>
+                </div>
+              </div>
             </div>
 
+            <!-- Charts & Lists Grid -->
             <div class="dashboard-grid mt-4">
-              <div class="card ops-panel">
-                <div class="ops-panel-header">
-                  <h3>Fluxo de trabalho</h3>
-                  <span class="badge badge-soft">Operação</span>
+              <!-- Performance Chart -->
+              <div class="card chart-card">
+                <div class="card-header">
+                  <h3>Desempenho Geral de Entregas</h3>
+                  <span class="badge badge-soft">Dados reais</span>
                 </div>
                 <div class="card-body">
-                  <div class="ops-flow-list">
-                    <div class="ops-flow-item">
-                      <span class="ops-flow-marker"></span>
-                      <div>
-                        <strong>Receber pedidos</strong>
-                        <p>Pedidos manuais ou das integrações entram na fila de despacho.</p>
-                      </div>
-                    </div>
-                    <div class="ops-flow-item">
-                      <span class="ops-flow-marker"></span>
-                      <div>
-                        <strong>Despachar entregador</strong>
-                        <p>A equipe escolhe o entregador adequado e acompanha o aceite.</p>
-                      </div>
-                    </div>
-                    <div class="ops-flow-item">
-                      <span class="ops-flow-marker"></span>
-                      <div>
-                        <strong>Acompanhar rota</strong>
-                        <p>O mapa e os status mostram o andamento até a finalização.</p>
-                      </div>
-                    </div>
-                    <div class="ops-flow-item">
-                      <span class="ops-flow-marker"></span>
-                      <div>
-                        <strong>Fechar repasse</strong>
-                        <p>As entregas concluídas alimentam histórico, financeiro e repasse.</p>
-                      </div>
-                    </div>
+                  <div class="chart-container">
+                    <canvas id="ownerOverviewChart"></canvas>
                   </div>
                 </div>
               </div>
 
-              <div class="card ops-panel">
-                <div class="ops-panel-header">
-                  <h3>Próximas ações</h3>
-                  <span class="badge badge-soft">Painel</span>
+              <!-- Top Client Commerces -->
+              <div class="card">
+                <div class="card-header">
+                  <h3>Clientes Comerciais</h3>
+                  <button type="button" class="view-all-link" onclick="switchDashboardTab('owner-teles')">Ver teles</button>
                 </div>
                 <div class="card-body">
-                  <div class="ops-flow-list compact">
-                    <div class="ops-flow-item">
-                      <span class="ops-flow-marker"></span>
-                      <div>
-                        <strong>Revisar integrações</strong>
-                        <p>Confirme se os webhooks das plataformas estão apontando para a Garra.</p>
-                      </div>
-                    </div>
-                    <div class="ops-flow-item">
-                      <span class="ops-flow-marker"></span>
-                      <div>
-                        <strong>Acompanhar pedidos pendentes</strong>
-                        <p>Use a fila de teles para evitar solicitações paradas.</p>
-                      </div>
+                  <div class="list-container">
+                    <div class="empty-state-card" style="min-height: 240px;">
+                      <i data-lucide="store"></i>
+                      <h4>Nenhum ranking calculado</h4>
+                      <p>Quando houver histórico real de entregas por comércio, esta lista será preenchida automaticamente.</p>
                     </div>
                   </div>
                 </div>
