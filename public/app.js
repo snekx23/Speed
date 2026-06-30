@@ -18,8 +18,8 @@ const mockData = {
   clientHistory: [],
   credentials: {
     owner: { email: 'admin@garradelivery.com.br', pass: 'admin123', name: 'Gustavo Souza', role: 'Dono & CEO', avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?q=80&w=256&auto=format&fit=crop' },
-    client: { email: 'gerente@burgerchef.com.br', pass: 'burger123', name: 'Roberto Heinz', role: 'Gerente - Burger Chef', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop' },
-    order: { email: 'pedido@burgerchef.com.br', pass: 'express123', name: 'Roberto Heinz', role: 'Gerente - Burger Chef', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop' }
+    client: { email: 'parceiro@garradelivery.com.br', pass: 'parceiro123', name: 'Parceiro Garra', role: 'Área do parceiro', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop' },
+    order: { email: 'pedido@garradelivery.com.br', pass: 'pedido123', name: 'Operação do Parceiro', role: 'Solicitação de entrega', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=256&auto=format&fit=crop' }
   },
   pendingDeliveries: []
 };
@@ -53,11 +53,7 @@ let trackingRealtimeChannel = null;
 let activeChatClientEmail = null;
 let activeChatClientName = null;
 let supportChatChannel = null;
-let clientRatings = [
-  { score: 5, title: 'Entrega rápida e cordial', comment: 'Motoboy chegou antes do prazo e manteve o pedido em perfeito estado.', date: 'Hoje, 14:20' },
-  { score: 5, title: 'Coleta sem espera', comment: 'Fluxo funcionou bem no horário de pico.', date: 'Ontem, 21:10' },
-  { score: 4, title: 'Boa comunicação', comment: 'Avisou sobre o trânsito e finalizou sem atraso relevante.', date: 'Terça, 19:35' }
-];
+let clientRatings = [];
 
 // Async functions to sync with Supabase
 async function fetchFleet() {
@@ -368,8 +364,8 @@ async function loginSuccess() {
   } else if (profile === 'client') {
     document.getElementById('display-role').innerText = 'Painel Cliente';
     document.getElementById('nav-client-group').classList.remove('hidden');
-    document.getElementById('dashboard-title').innerText = 'Burger do Chef';
-    document.getElementById('dashboard-subtitle').innerText = 'Métricas de desempenho e histórico de entregas da sua lancheria.';
+    document.getElementById('dashboard-title').innerText = 'Área do Parceiro';
+    document.getElementById('dashboard-subtitle').innerText = 'Acompanhe solicitações, histórico e suporte da sua operação.';
     
     // Fetch initial client data from Supabase
     await fetchClientHistory();
@@ -1302,8 +1298,8 @@ async function submitDeliveryRequest(event) {
   // Create delivery payload for Supabase
   const newDelivery = {
     id: randomId,
-    client: 'Burger do Chef',
-    dest_name: 'Cliente Express',
+    client: 'Parceiro Garra',
+    dest_name: 'Cliente informado',
     address: destAddress,
     dist: window.lastEstimate.distance,
     price: window.lastEstimate.price,
@@ -1330,9 +1326,9 @@ async function submitDeliveryRequest(event) {
   // Setup tracker UI elements
   const newOrder = {
     id: randomId,
-    destName: 'Cliente Express',
+    destName: 'Cliente informado',
     address: destAddress,
-    rider: 'Carlos Oliveira (Demo)',
+    rider: 'Aguardando entregador',
     dist: window.lastEstimate.distance,
     price: window.lastEstimate.price,
     date: 'Hoje, ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
@@ -1432,7 +1428,7 @@ function runLogisticsSimulation(order) {
     // Show rider profile info
     document.getElementById('tracker-courier-box').classList.remove('hidden');
 
-    // Move motorcycle icon to pickup location (Burger do Chef shop at top: 70%, left: 30%)
+    // Move motorcycle icon to pickup location at the top-left area of the route mock.
     moto.style.transition = 'top 5s cubic-bezier(0.25, 0.46, 0.45, 0.94), left 5s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
     moto.style.top = '70%';
     moto.style.left = '30%';
@@ -1707,15 +1703,6 @@ function renderMapMarkers(centerCoords) {
     [-0.009, 0.005]
   ];
 
-  // Fallback demo riders when Supabase does not return fleet rows.
-  const demoRidersLocations = [
-    { name: 'Carlos Oliveira', vehicle: 'Honda CG 160 Fan', plate: 'ABC-1234', status: 'A caminho da coleta', statusColor: '#ffb700', offset: offsets[0] },
-    { name: 'Marcos Santos', vehicle: 'Yamaha YZF-R3', plate: 'XYZ-9876', status: 'Em rota de entrega', statusColor: '#ffb700', offset: offsets[1] },
-    { name: 'Julia Costa', vehicle: 'Shineray XY 50', plate: 'MNO-5432', status: 'Disponível', statusColor: '#f97316', offset: offsets[2] },
-    { name: 'Roberto Lima', vehicle: 'Honda Biz 125', plate: 'PQR-8765', status: 'Em Descanso', statusColor: '#8e8e9f', offset: offsets[3] },
-    { name: 'Aline Dias', vehicle: 'Voltz EVS (Elétrica)', plate: 'ELE-2026', status: 'Em rota de entrega', statusColor: '#ffb700', offset: offsets[4] },
-    { name: 'Lucas Souza', vehicle: 'Yamaha Fazer 250', plate: 'DEF-4321', status: 'Disponível', statusColor: '#f97316', offset: offsets[5] }
-  ];
   const ridersLocations = mockData.fleet.length
     ? mockData.fleet.map((rider, index) => ({
         id: rider.id,
@@ -1726,7 +1713,7 @@ function renderMapMarkers(centerCoords) {
         statusColor: rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ffb700' : '#f97316'),
         offset: offsets[index % offsets.length]
       }))
-    : demoRidersLocations;
+    : [];
 
   // Add markers to map
   ridersLocations.forEach(rider => {
@@ -2237,8 +2224,8 @@ async function removeTeleFromRider(deliveryId, riderId) {
 
   const pendingPayload = {
     id: order.id,
-    client: 'Burger do Chef',
-    dest_name: order.destName || 'Cliente Express',
+    client: 'Parceiro Garra',
+    dest_name: order.destName || 'Cliente informado',
     address: order.address,
     dist: order.dist,
     price: order.price,
@@ -2603,6 +2590,18 @@ function renderClientRatings() {
   const list = document.getElementById('client-ratings-list');
   if (!list) return;
 
+  if (clientRatings.length === 0) {
+    list.innerHTML = `
+      <div class="empty-state-card" style="min-height: 260px;">
+        <i data-lucide="star"></i>
+        <h4>Nenhuma avaliação registrada</h4>
+        <p>As avaliações aparecerão aqui depois que forem enviadas pelo formulário.</p>
+      </div>
+    `;
+    lucide.createIcons();
+    return;
+  }
+
   list.innerHTML = clientRatings.map(item => `
     <div class="list-item">
       <div class="item-info">
@@ -2778,12 +2777,7 @@ async function loadClientChatHistory() {
   if (!creds) return;
 
   if (!supabaseClient) {
-    // Graceful fallback for offline/no-database
-    const mockMessages = [
-      { client_email: creds.email, sender_role: 'client', sender_name: creds.name, message: 'Olá, preciso de suporte.', created_at: new Date(Date.now() - 3600000).toISOString() },
-      { client_email: creds.email, sender_role: 'admin', sender_name: 'Suporte Garra', message: 'Olá! Como podemos ajudar?', created_at: new Date(Date.now() - 1800000).toISOString() }
-    ];
-    renderClientMessages(mockMessages);
+    renderClientMessages([]);
     return;
   }
 
@@ -2799,12 +2793,7 @@ async function loadClientChatHistory() {
     renderClientMessages(data || []);
   } catch (err) {
     console.error("Error loading client chat history:", err);
-    // Graceful fallback to mock messages on query failure
-    const mockMessages = [
-      { client_email: creds.email, sender_role: 'client', sender_name: creds.name, message: 'Olá, preciso de suporte. (Offline)', created_at: new Date(Date.now() - 3600000).toISOString() },
-      { client_email: creds.email, sender_role: 'admin', sender_name: 'Suporte Garra', message: 'Olá! Como podemos ajudar?', created_at: new Date(Date.now() - 1800000).toISOString() }
-    ];
-    renderClientMessages(mockMessages);
+    renderClientMessages([]);
   }
 }
 
@@ -2915,12 +2904,7 @@ async function loadAdminChatChannels() {
   `;
 
   if (!supabaseClient) {
-    const defaultClients = [
-      { email: 'gerente@burgerchef.com.br', name: 'Burger do Chef (Roberto)', lastMessage: 'Olá! Preciso de ajuda com um pedido.', time: '14:30' },
-      { email: 'gerente@bellaitalia.com.br', name: 'Pizzaria Bella Italia', lastMessage: 'Sem mensagens anteriores', time: '' },
-      { email: 'gerente@subwaygrill.com.br', name: 'Subway Grill', lastMessage: 'Sem mensagens anteriores', time: '' }
-    ];
-    renderAdminChatChannels(defaultClients);
+    renderAdminChatChannels([]);
     return;
   }
 
@@ -2943,35 +2927,11 @@ async function loadAdminChatChannels() {
       };
     });
 
-    // Ensure all three mock client restaurants are always listed
-    const defaultClients = [
-      { email: 'gerente@burgerchef.com.br', name: 'Burger do Chef (Roberto)' },
-      { email: 'gerente@bellaitalia.com.br', name: 'Pizzaria Bella Italia' },
-      { email: 'gerente@subwaygrill.com.br', name: 'Subway Grill' }
-    ];
-    
-    defaultClients.forEach(c => {
-      if (!clientsMap[c.email]) {
-        clientsMap[c.email] = {
-          email: c.email,
-          name: c.name,
-          lastMessage: 'Sem mensagens anteriores',
-          time: ''
-        };
-      }
-    });
-
     const channels = Object.values(clientsMap);
     renderAdminChatChannels(channels);
   } catch (err) {
     console.error("Error loading admin chat channels:", err);
-    // Graceful fallback to default clients on error
-    const defaultClients = [
-      { email: 'gerente@burgerchef.com.br', name: 'Burger do Chef (Roberto)', lastMessage: 'Olá! Preciso de ajuda com um pedido.', time: '14:30' },
-      { email: 'gerente@bellaitalia.com.br', name: 'Pizzaria Bella Italia', lastMessage: 'Sem mensagens anteriores', time: '' },
-      { email: 'gerente@subwaygrill.com.br', name: 'Subway Grill', lastMessage: 'Sem mensagens anteriores', time: '' }
-    ];
-    renderAdminChatChannels(defaultClients);
+    renderAdminChatChannels([]);
   }
 }
 
@@ -3034,14 +2994,7 @@ async function selectAdminChatChannel(email, name) {
   }
 
   if (!supabaseClient) {
-    let mockMessages = [];
-    if (email === 'gerente@burgerchef.com.br') {
-      mockMessages = [
-        { client_email: email, sender_role: 'client', sender_name: 'Roberto Heinz', message: 'Olá! Preciso de ajuda com um pedido.', created_at: new Date(Date.now() - 3600000).toISOString() },
-        { client_email: email, sender_role: 'admin', sender_name: 'Suporte Garra', message: 'Olá! Como posso ajudar você hoje?', created_at: new Date(Date.now() - 1800000).toISOString() }
-      ];
-    }
-    renderAdminMessages(mockMessages);
+    renderAdminMessages([]);
     return;
   }
 
@@ -3057,15 +3010,7 @@ async function selectAdminChatChannel(email, name) {
     renderAdminMessages(data || []);
   } catch (err) {
     console.error("Error fetching messages for admin:", err);
-    // Graceful fallback to mock messages on query failure
-    let mockMessages = [];
-    if (email === 'gerente@burgerchef.com.br') {
-      mockMessages = [
-        { client_email: email, sender_role: 'client', sender_name: 'Roberto Heinz', message: 'Olá! Preciso de ajuda com um pedido.', created_at: new Date(Date.now() - 3600000).toISOString() },
-        { client_email: email, sender_role: 'admin', sender_name: 'Suporte Garra', message: 'Olá! Como posso ajudar você hoje?', created_at: new Date(Date.now() - 1800000).toISOString() }
-      ];
-    }
-    renderAdminMessages(mockMessages);
+    renderAdminMessages([]);
   }
 }
 

@@ -46,7 +46,7 @@
             <span class="logo-text">GARRA<span class="cyan-text"> DELIVERY</span></span>
           </div>
           <div class="nav-badges" style="display: flex; gap: 12px; align-items: center;">
-            <span class="badge badge-success"><span class="dot"></span> 942 Motoboys Ativos</span>
+            <span class="badge badge-soft"><span class="dot"></span> Portal Garra</span>
             <button class="btn btn-secondary btn-sm" onclick="showDownloadAppModal()" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; height: 30px; font-size: 0.8rem; cursor: pointer; border: 1px solid var(--border-color); background: var(--secondary); color: var(--color-text);">
               <i data-lucide="download" style="width: 14px; height: 14px;"></i> <span>Baixar App</span>
             </button>
@@ -57,22 +57,25 @@
       <div class="hero-container">
         <!-- Hero Left: Content -->
         <div class="hero-content">
-          <span class="hero-tagline"><i data-lucide="shield-check" class="inline-icon"></i> Mais Agilidade. Mais Controle. Mais Entregas.</span>
+          <span class="hero-tagline"><i data-lucide="shield-check" class="inline-icon"></i> Operação clara do pedido ao repasse</span>
           <h1 class="hero-title">Sua logística de entregas em um <span class="gradient-text">único painel.</span></h1>
-          <p class="hero-subtitle">Fornecemos entregadores sob demanda e fixos para o seu comércio. Gerencie faturamento, acompanhe taxas em tempo real e impulsione suas vendas com a Garra.</p>
+          <p class="hero-subtitle">Um portal direto para controlar pedidos, entregadores, integrações e atendimento sem depender de planilhas ou conversas perdidas.</p>
           
-          <div class="hero-stats">
-            <div class="stat-card">
-              <span class="stat-num" id="stat-deliveries">12.4K</span>
-              <span class="stat-label">Entregas hoje</span>
+          <div class="hero-pillars">
+            <div class="pillar-card">
+              <span class="pillar-kicker">Despacho</span>
+              <strong>Pedidos organizados</strong>
+              <span>Receba solicitações e envie para o entregador certo.</span>
             </div>
-            <div class="stat-card">
-              <span class="stat-num">14 min</span>
-              <span class="stat-label">Tempo médio</span>
+            <div class="pillar-card">
+              <span class="pillar-kicker">Parceiros</span>
+              <strong>Área do comércio</strong>
+              <span>Acompanhe solicitações, histórico e suporte em um só lugar.</span>
             </div>
-            <div class="stat-card">
-              <span class="stat-num">99.7%</span>
-              <span class="stat-label">Taxa de sucesso</span>
+            <div class="pillar-card">
+              <span class="pillar-kicker">Integrações</span>
+              <strong>iFood e 99Food</strong>
+              <span>Pedidos das plataformas entram no fluxo operacional da Garra.</span>
             </div>
           </div>
         </div>
@@ -249,11 +252,11 @@
           <div class="topbar-right">
             <div class="current-time">
               <i data-lucide="calendar"></i>
-              <span id="current-date-span">Sáb, 6 de Junho de 2026</span>
+              <span id="current-date-span">Data atual</span>
             </div>
             <div class="notification-bell" id="notification-bell" onclick="toggleNotifications()" style="position: relative; cursor: pointer;">
               <i data-lucide="bell"></i>
-              <span class="bell-badge" id="bell-badge">3</span>
+              <span class="bell-badge" id="bell-badge" style="display: none;">0</span>
             </div>
             <!-- Notification Dropdown Panel -->
             <div id="notification-panel" class="notification-panel hidden">
@@ -262,26 +265,9 @@
                 <button onclick="clearNotifications(event)" class="notif-clear-btn">Limpar tudo</button>
               </div>
               <div id="notification-list" class="notification-list">
-                <div class="notif-item unread">
-                  <div class="notif-icon bg-primary"><i data-lucide="bike"></i></div>
-                  <div class="notif-content">
-                    <p><strong>Carlos Oliveira</strong> concluiu a entrega <strong>#SPD-8821</strong></p>
-                    <span class="notif-time">Há 5 minutos</span>
-                  </div>
-                </div>
-                <div class="notif-item unread">
-                  <div class="notif-icon bg-yellow"><i data-lucide="alert-triangle"></i></div>
-                  <div class="notif-content">
-                    <p><strong>Aline Dias</strong> está com bateria abaixo de 20%</p>
-                    <span class="notif-time">Há 12 minutos</span>
-                  </div>
-                </div>
-                <div class="notif-item unread">
-                  <div class="notif-icon bg-cyan"><i data-lucide="store"></i></div>
-                  <div class="notif-content">
-                    <p><strong>Pizzaria Bella Italia</strong> solicitou novo motoboy</p>
-                    <span class="notif-time">Há 20 minutos</span>
-                  </div>
+                <div style="text-align: center; padding: 32px 16px; color: var(--color-text-muted);">
+                  <i data-lucide="check-circle" style="width: 36px; height: 36px; color: var(--success); display: inline-block; margin-bottom: 8px;"></i>
+                  <p style="font-size: 0.9rem;">Nenhuma notificação pendente.</p>
                 </div>
               </div>
             </div>
@@ -294,123 +280,100 @@
           <!-- ================= DONO TABS ================= -->
           <!-- 1. Owner Overview -->
           <div id="tab-owner-overview" class="dashboard-tab-content active">
-            <!-- Grid of Cards -->
-            <div class="metrics-grid">
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Faturamento Mensal</span>
-                  <i data-lucide="dollar-sign" class="text-yellow"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>R$ 84.290,00</h3>
-                  <p class="growth-text up"><i data-lucide="trending-up"></i> +12% em relação ao mês anterior</p>
-                </div>
+            <section class="ops-hero">
+              <div class="ops-hero-content">
+                <span class="ops-eyebrow"><i data-lucide="radio-tower"></i> Operação Garra</span>
+                <h3 class="ops-hero-title">Controle a rotina de entregas sem ruído.</h3>
+                <p class="ops-hero-text">A visão geral reúne os caminhos principais do painel. Use a Gestão de Teles para despachar pedidos, acompanhe a frota no mapa e mantenha as integrações sob controle.</p>
               </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Motoboys na Rua</span>
-                  <i data-lucide="bike" class="text-blue"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>152 / 180</h3>
-                  <p class="growth-text neutral"><span class="pulse-dot inline"></span> Alta demanda no momento</p>
-                </div>
+              <div class="ops-status-chip">
+                <i data-lucide="shield-check"></i>
+                <span>Ambiente de produção</span>
               </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Entregas Concluídas (Hoje)</span>
-                  <i data-lucide="check-circle" class="text-green"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>1.842</h3>
-                  <p class="growth-text up"><i data-lucide="trending-up"></i> +4.2% vs ontem</p>
-                </div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Ticket Médio por Corrida</span>
-                  <i data-lucide="credit-card" class="text-purple"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>R$ 14,80</h3>
-                  <p class="growth-text down"><i data-lucide="trending-down"></i> -1.5% devido a rota reduzida</p>
-                </div>
-              </div>
+            </section>
+
+            <div class="ops-actions-grid">
+              <button type="button" class="ops-card ops-card-large" onclick="switchDashboardTab('owner-teles')">
+                <span class="ops-card-icon"><i data-lucide="list-checks"></i></span>
+                <h3>Gestão de Teles</h3>
+                <p>Veja pedidos pendentes e envie cada entrega para um entregador disponível.</p>
+              </button>
+              <button type="button" class="ops-card" onclick="switchDashboardTab('owner-integracoes')">
+                <span class="ops-card-icon"><i data-lucide="plug-zap"></i></span>
+                <h3>Integrações</h3>
+                <p>Conecte iFood e 99Food ao fluxo operacional da Garra.</p>
+              </button>
+              <button type="button" class="ops-card" onclick="switchDashboardTab('owner-fleet')">
+                <span class="ops-card-icon"><i data-lucide="bike"></i></span>
+                <h3>Frota & Entregadores</h3>
+                <p>Cadastre, revise acessos e acompanhe a equipe em campo.</p>
+              </button>
+              <button type="button" class="ops-card" onclick="switchDashboardTab('admin-support')">
+                <span class="ops-card-icon"><i data-lucide="messages-square"></i></span>
+                <h3>Suporte operacional</h3>
+                <p>Centralize conversas dos parceiros e responda pelo painel.</p>
+              </button>
             </div>
 
-            <!-- Charts & Lists Grid -->
             <div class="dashboard-grid mt-4">
-              <!-- Performance Chart -->
-              <div class="card chart-card">
-                <div class="card-header">
-                  <h3>Desempenho Geral de Entregas</h3>
-                  <span class="badge">Tempo Real</span>
+              <div class="card ops-panel">
+                <div class="ops-panel-header">
+                  <h3>Fluxo de trabalho</h3>
+                  <span class="badge badge-soft">Operação</span>
                 </div>
                 <div class="card-body">
-                  <div class="chart-container">
-                    <canvas id="ownerOverviewChart"></canvas>
+                  <div class="ops-flow-list">
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Receber pedidos</strong>
+                        <p>Pedidos manuais ou das integrações entram na fila de despacho.</p>
+                      </div>
+                    </div>
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Despachar entregador</strong>
+                        <p>A equipe escolhe o entregador adequado e acompanha o aceite.</p>
+                      </div>
+                    </div>
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Acompanhar rota</strong>
+                        <p>O mapa e os status mostram o andamento até a finalização.</p>
+                      </div>
+                    </div>
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Fechar repasse</strong>
+                        <p>As entregas concluídas alimentam histórico, financeiro e repasse.</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Top Client Commerces -->
-              <div class="card">
-                <div class="card-header">
-                  <h3>Clientes Comerciais (Mais Ativos)</h3>
-                  <a href="#" class="view-all-link">Ver todos</a>
+              <div class="card ops-panel">
+                <div class="ops-panel-header">
+                  <h3>Próximas ações</h3>
+                  <span class="badge badge-soft">Painel</span>
                 </div>
                 <div class="card-body">
-                  <div class="list-container">
-                    <div class="list-item">
-                      <div class="item-info">
-                        <div class="item-icon-avatar bg-yellow"><i data-lucide="store" class="text-black"></i></div>
-                        <div>
-                          <h4>Burger do Chef & Cia</h4>
-                          <p class="text-muted">142 entregas completadas essa semana</p>
-                        </div>
-                      </div>
-                      <div class="item-action text-right">
-                        <strong>R$ 2.100,50</strong>
-                        <span class="badge badge-success mt-1">Ótimo</span>
+                  <div class="ops-flow-list compact">
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Revisar integrações</strong>
+                        <p>Confirme se os webhooks das plataformas estão apontando para a Garra.</p>
                       </div>
                     </div>
-                    <div class="list-item">
-                      <div class="item-info">
-                        <div class="item-icon-avatar bg-yellow"><i data-lucide="store" class="text-black"></i></div>
-                        <div>
-                          <h4>Pizzaria Bella Italia</h4>
-                          <p class="text-muted">98 entregas completadas essa semana</p>
-                        </div>
-                      </div>
-                      <div class="item-action text-right">
-                        <strong>R$ 1.640,00</strong>
-                        <span class="badge badge-success mt-1">Ativo</span>
-                      </div>
-                    </div>
-                    <div class="list-item">
-                      <div class="item-info">
-                        <div class="item-icon-avatar bg-yellow"><i data-lucide="store" class="text-black"></i></div>
-                        <div>
-                          <h4>Subway Grill Express</h4>
-                          <p class="text-muted">87 entregas completadas essa semana</p>
-                        </div>
-                      </div>
-                      <div class="item-action text-right">
-                        <strong>R$ 1.280,00</strong>
-                        <span class="badge badge-success mt-1">Ativo</span>
-                      </div>
-                    </div>
-                    <div class="list-item">
-                      <div class="item-info">
-                        <div class="item-icon-avatar bg-yellow"><i data-lucide="store" class="text-black"></i></div>
-                        <div>
-                          <h4>Cantina di Lucca</h4>
-                          <p class="text-muted">45 entregas completadas essa semana</p>
-                        </div>
-                      </div>
-                      <div class="item-action text-right">
-                        <strong>R$ 670,20</strong>
-                        <span class="badge badge-warning mt-1">Moderado</span>
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Acompanhar pedidos pendentes</strong>
+                        <p>Use a fila de teles para evitar solicitações paradas.</p>
                       </div>
                     </div>
                   </div>
@@ -764,105 +727,84 @@
           <!-- ================= CLIENTE TABS ================= -->
           <!-- 1. Client Overview -->
           <div id="tab-client-overview" class="dashboard-tab-content">
-            <div class="metrics-grid">
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Entregas Despachadas</span>
-                  <i data-lucide="shopping-bag" class="text-yellow"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3 id="client-total-orders">284</h3>
-                  <p class="growth-text up"><i data-lucide="trending-up"></i> +8% este mês</p>
-                </div>
+            <section class="ops-hero partner-hero">
+              <div class="ops-hero-content">
+                <span class="ops-eyebrow"><i data-lucide="store"></i> Área do Parceiro</span>
+                <h3 class="ops-hero-title">Solicite entregas e acompanhe sua operação.</h3>
+                <p class="ops-hero-text">Use este painel para abrir novas solicitações, consultar histórico, falar com o suporte e acompanhar avaliações sem depender de números simulados.</p>
               </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Tempo de Entrega Médio</span>
-                  <i data-lucide="clock" class="text-blue"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>16.4 min</h3>
-                  <p class="growth-text up"><i data-lucide="trending-up"></i> 1.2 min mais rápido que a média geral</p>
-                </div>
+              <div class="ops-status-chip">
+                <i data-lucide="circle-check"></i>
+                <span>Pronto para operar</span>
               </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Custo Total em Logística</span>
-                  <i data-lucide="dollar-sign" class="text-green"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3 id="client-total-cost">R$ 4.203,20</h3>
-                  <p class="text-muted">Cobrado quinzenalmente no boleto</p>
-                </div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Pontuação Média de Clientes</span>
-                  <i data-lucide="star" class="text-purple"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>4.92 / 5.0</h3>
-                  <p class="growth-text up"><i data-lucide="heart" class="inline-icon"></i> Feedback excelente</p>
-                </div>
-              </div>
+            </section>
+
+            <div class="ops-actions-grid partner-actions">
+              <button type="button" class="ops-card ops-card-large" onclick="switchDashboardTab('client-request')">
+                <span class="ops-card-icon"><i data-lucide="package-plus"></i></span>
+                <h3>Nova solicitação</h3>
+                <p>Abra uma entrega com endereço, forma de pagamento e observações da carga.</p>
+              </button>
+              <button type="button" class="ops-card" onclick="switchDashboardTab('client-history')">
+                <span class="ops-card-icon"><i data-lucide="history"></i></span>
+                <h3>Histórico</h3>
+                <p>Consulte pedidos finalizados quando houver registros no banco.</p>
+              </button>
+              <button type="button" class="ops-card" onclick="switchDashboardTab('client-support')">
+                <span class="ops-card-icon"><i data-lucide="message-square"></i></span>
+                <h3>Suporte Chat</h3>
+                <p>Fale com a Garra e acompanhe as respostas em uma conversa única.</p>
+              </button>
+              <button type="button" class="ops-card" onclick="switchDashboardTab('client-ratings')">
+                <span class="ops-card-icon"><i data-lucide="star"></i></span>
+                <h3>Avaliações</h3>
+                <p>Registre feedbacks reais da operação para acompanhamento interno.</p>
+              </button>
             </div>
 
-            <!-- Client charts and metrics -->
             <div class="dashboard-grid mt-4">
-              <div class="card chart-card">
-                <div class="card-header">
-                  <h3>Tempo Estimado vs Tempo Real</h3>
-                  <span class="badge">Últimos 7 dias</span>
+              <div class="card ops-panel">
+                <div class="ops-panel-header">
+                  <h3>Como usar o painel</h3>
+                  <span class="badge badge-soft">Parceiro</span>
                 </div>
                 <div class="card-body">
-                  <div class="chart-container">
-                    <canvas id="clientOverviewChart"></canvas>
+                  <div class="ops-flow-list">
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Solicite a coleta</strong>
+                        <p>Informe destino, pagamento, carga e observações da entrega.</p>
+                      </div>
+                    </div>
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Acompanhe o andamento</strong>
+                        <p>O status do pedido aparece na área de rastreamento quando a tele é enviada.</p>
+                      </div>
+                    </div>
+                    <div class="ops-flow-item">
+                      <span class="ops-flow-marker"></span>
+                      <div>
+                        <strong>Resolva pendências</strong>
+                        <p>Use o suporte para dúvidas de entrega, repasse ou integração.</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Lancheria quick stats & active promos -->
-              <div class="card">
-                <div class="card-header">
-                  <h3>Desempenho da Lancheria</h3>
+              <div class="card ops-panel">
+                <div class="ops-panel-header">
+                  <h3>Estado dos dados</h3>
+                  <span class="badge badge-soft">Real</span>
                 </div>
                 <div class="card-body">
-                  <div class="perf-bar-group">
-                    <div class="perf-bar-label">
-                      <span>Eficiência de Preparo Interno</span>
-                      <strong>94%</strong>
-                    </div>
-                    <div class="perf-bar">
-                      <div class="perf-bar-fill bg-green" style="width: 94%"></div>
-                    </div>
-                  </div>
-                  
-                  <div class="perf-bar-group mt-3">
-                    <div class="perf-bar-label">
-                      <span>Pontualidade dos Motoboys</span>
-                      <strong>97.5%</strong>
-                    </div>
-                    <div class="perf-bar">
-                      <div class="perf-bar-fill bg-yellow" style="width: 97.5%"></div>
-                    </div>
-                  </div>
-
-                  <div class="perf-bar-group mt-3">
-                    <div class="perf-bar-label">
-                      <span>Avaliações de Embalagem</span>
-                      <strong>89%</strong>
-                    </div>
-                    <div class="perf-bar">
-                      <div class="perf-bar-fill bg-blue" style="width: 89%"></div>
-                    </div>
-                  </div>
-
-                  <div class="promo-box mt-4">
-                    <div class="promo-box-title">
-                      <i data-lucide="award" class="text-yellow"></i>
-                      <h4>Selo Garra Premium</h4>
-                    </div>
-                    <p class="text-muted mt-1">Parabéns! Seu comércio obteve selo de excelência em entregas devido ao baixo tempo de preparo de embalagens e tempo de motoqueiro aguardando.</p>
+                  <div class="empty-state-card">
+                    <i data-lucide="database"></i>
+                    <h4>Sem métricas simuladas</h4>
+                    <p>Quando houver registros reais, as tabelas e históricos serão preenchidos automaticamente pelo banco de dados.</p>
                   </div>
                 </div>
               </div>
@@ -901,38 +843,13 @@
 
           <!-- 3. Client Ratings -->
           <div id="tab-client-ratings" class="dashboard-tab-content">
-            <div class="metrics-grid">
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Nota Geral</span>
-                  <i data-lucide="star" class="text-yellow"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>4.92 / 5</h3>
-                  <p class="growth-text up"><i data-lucide="trending-up"></i> Excelente experiência de entrega</p>
-                </div>
+            <section class="ops-hero partner-hero">
+              <div class="ops-hero-content">
+                <span class="ops-eyebrow"><i data-lucide="star"></i> Avaliações</span>
+                <h3 class="ops-hero-title">Registre feedbacks reais da operação.</h3>
+                <p class="ops-hero-text">Esta área não exibe notas inventadas. As avaliações aparecem quando alguém registra uma experiência pelo formulário.</p>
               </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Pontualidade</span>
-                  <i data-lucide="clock" class="text-blue"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>97%</h3>
-                  <p class="text-muted">Pedidos dentro do prazo prometido.</p>
-                </div>
-              </div>
-              <div class="metric-card">
-                <div class="metric-card-header">
-                  <span>Embalagem</span>
-                  <i data-lucide="package-check" class="text-green"></i>
-                </div>
-                <div class="metric-card-body">
-                  <h3>89%</h3>
-                  <p class="text-muted">Avaliação dos clientes finais.</p>
-                </div>
-              </div>
-            </div>
+            </section>
             <div class="dashboard-grid mt-4">
               <div class="card">
                 <div class="card-header">
@@ -989,7 +906,7 @@
                       <div class="form-group flex-1">
                         <label for="pickup-address"><i data-lucide="store" class="inline-icon text-yellow"></i> Ponto de Retirada (Comércio)</label>
                         <div class="input-wrapper">
-                          <input type="text" id="pickup-address" readonly value="Burger do Chef - Av. Central, 120">
+                          <input type="text" id="pickup-address" readonly value="Retirada cadastrada no painel">
                         </div>
                       </div>
                     </div>
@@ -1108,7 +1025,7 @@
               <div class="card tracking-status-card">
                 <div class="card-header flex-row">
                   <div>
-                    <h3>Status do Pedido: <span class="text-yellow" id="tracker-order-id">#SPD-8942</span></h3>
+                    <h3>Status do Pedido: <span class="text-yellow" id="tracker-order-id">Aguardando tele</span></h3>
                     <p class="text-muted">Acompanhe as fases da entrega expressa em tempo real.</p>
                   </div>
                   <span class="status-badge status-progress" id="tracker-badge-status">Buscando Entregador</span>
@@ -1152,10 +1069,10 @@
                       <img src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=256&auto=format&fit=crop" id="tracker-courier-img" alt="Motoboy Avatar">
                     </div>
                     <div class="courier-info-tracker">
-                      <h4 id="tracker-courier-name">Carlos Oliveira</h4>
-                      <p class="text-muted" id="tracker-courier-vehicle">Honda CG 160 Fan - Placa: ABC-1234</p>
+                      <h4 id="tracker-courier-name">Entregador em confirmação</h4>
+                      <p class="text-muted" id="tracker-courier-vehicle">Dados preenchidos após o aceite</p>
                       <div class="courier-rating">
-                        <i data-lucide="star" class="fill-yellow text-yellow"></i> 4.98 (242 entregas)
+                        <i data-lucide="star" class="fill-yellow text-yellow"></i> Avaliação disponível após o despacho
                       </div>
                     </div>
                     <div class="courier-contact">
@@ -1713,7 +1630,7 @@
               <label for="mb-plate">Placa</label>
               <div class="input-wrapper">
                 <i data-lucide="hash" class="input-icon"></i>
-                <input type="text" id="mb-plate" required placeholder="Ex: ABC-1234" maxlength="8">
+                <input type="text" id="mb-plate" required placeholder="Ex: AAA-0000" maxlength="8">
               </div>
             </div>
           </div>
