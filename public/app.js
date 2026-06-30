@@ -582,11 +582,20 @@ async function configurar99food() {
   if (btn) { btn.disabled = true; btn.querySelector('span').innerText = 'Configurando…'; }
   try {
     const r = await invokeFn('food99-setup', {});
-    const configuradas = (r.configuradas || []).filter(c => c.online && c.confirm).length;
+    const configuracoes99food = r.configuradas || [];
+    const errosSetup99food = configuracoes99food.filter(c => c.erro);
+    const configuradas = configuracoes99food.filter(c => c.online && c.confirm && !c.erro).length;
     if (msg) {
       msg.classList.remove('hidden');
       if (!r.total) {
         msg.innerText = 'Nenhuma loja vinculada ainda. Envie o link e peça pra loja autorizar.';
+      } else if (errosSetup99food.length) {
+        msg.innerText = errosSetup99food.map(c => c.erro).join('\n');
+        if (statusBadge) {
+          statusBadge.innerText = 'Ação necessária';
+          statusBadge.style.background = 'rgba(245, 158, 11, 0.12)';
+          statusBadge.style.color = '#f59e0b';
+        }
       } else {
         msg.innerText = `Pronto! ${configuradas} loja(s) online com confirmação pelo sistema.`;
         if (statusBadge && configuradas > 0) {

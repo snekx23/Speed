@@ -21,10 +21,20 @@ export async function inserirTele(tele: TeleNormalizada) {
   const sb = admin()
   const { data: lojas } = await sb
     .from('lojas')
-    .select('nome, pickup_lat, pickup_lng')
+    .select('id, nome, pickup_lat, pickup_lng')
     .order('created_at')
     .limit(1)
   const loja = lojas?.[0] ?? null
+
+  if (loja?.id && tele.food99_app_shop_id) {
+    await sb
+      .from('lojas')
+      .update({
+        food99_app_shop_id: tele.food99_app_shop_id,
+        status: 'conectada',
+      })
+      .eq('id', loja.id)
+  }
 
   const itensTxt = (tele.itens ?? []).map((i) => `${i.qtd}x ${i.nome}`).join(', ')
   const precoTxt = tele.valor != null ? `R$ ${Number(tele.valor).toFixed(2).replace('.', ',')}` : ''

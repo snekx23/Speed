@@ -43,6 +43,12 @@ async function buscarTokenNovo(appShopId: string): Promise<string> {
   const r = await fetch(u.toString())
   const j = await r.json()
   const token = j?.data?.auth_token ?? j?.auth_token
+  if (!token && Number(j?.errno) === 10101) {
+    throw new Error(
+      `auth/get falhou: autorização da loja no 99Food não existe para app_shop_id ${appShopId}. ` +
+      'Gere um novo link de conexão e autorize a loja novamente no portal 99Food.',
+    )
+  }
   if (!token) throw new Error(`auth/get falhou: ${JSON.stringify(j)}`)
   await admin().from('food99_tokens').upsert({
     app_shop_id: appShopId,
@@ -100,6 +106,24 @@ export async function listarLojasVinculadas(): Promise<any[]> {
   return j?.data?.shops ?? []
 }
 
+async function buscarLojasVinculadasDoBanco(): Promise<any[]> {
+  const { data, error } = await admin()
+    .from('lojas')
+    .select('nome, food99_app_shop_id, food99_merchant_nome')
+    .not('food99_app_shop_id', 'is', null)
+
+  if (error) throw error
+
+  return (data ?? [])
+    .filter((loja: any) => loja?.food99_app_shop_id)
+    .map((loja: any) => ({
+      app_shop_id: loja.food99_app_shop_id,
+      shop_name: loja.food99_merchant_nome || loja.nome || 'Loja 99Food',
+      bound_flag: 1,
+      source: 'supabase',
+    }))
+}
+
 async function postShop(path: string, body: Record<string, unknown>) {
   const r = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -120,8 +144,9 @@ async function configurarLoja(appShopId: string) {
 /** Setup pós-vínculo: lista lojas vinculadas e configura cada uma. */
 export async function configurarLojasVinculadas() {
   const shops = await listarLojasVinculadas()
+  const lojasConfiguraveis = shops.length ? shops : await buscarLojasVinculadasDoBanco()
   const resultados: any[] = []
-  for (const s of shops) {
+  for (const s of lojasConfiguraveis) {
     if (Number(s?.bound_flag) !== 1) continue
     const appShopId = s?.app_shop_id
     if (!appShopId) {
@@ -130,12 +155,16 @@ export async function configurarLojasVinculadas() {
     }
     try {
       const cfg = await configurarLoja(String(appShopId))
+      await admin()
+        .from('lojas')
+        .update({ status: 'conectada' })
+        .eq('food99_app_shop_id', String(appShopId))
       resultados.push({ shop: s?.shop_name, app_shop_id: appShopId, ...cfg })
     } catch (e) {
       resultados.push({ shop: s?.shop_name, app_shop_id: appShopId, erro: String(e) })
     }
   }
-  return { total: shops.length, configuradas: resultados }
+  return { total: lojasConfiguraveis.length, configuradas: resultados, source: shops.length ? '99food' : 'supabase' }
 }
 
 /** Executa uma ação de pedido, renovando o token automaticamente (errno 10100). */
