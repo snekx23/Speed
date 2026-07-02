@@ -467,6 +467,15 @@ async function loginSuccess() {
     }
   }
 
+  const clientActionCards = document.getElementById('client-action-cards');
+  if (clientActionCards) {
+    if (profile === 'owner') {
+      clientActionCards.classList.add('hidden');
+    } else {
+      clientActionCards.classList.remove('hidden');
+    }
+  }
+
   // Toggle visible sidebar navigation items depending on role
   document.getElementById('nav-owner-group').classList.add('hidden');
   document.getElementById('nav-client-group').classList.add('hidden');
@@ -648,6 +657,14 @@ async function switchDashboardTab(targetTab) {
         clientInfoPanels.classList.add('hidden');
       } else {
         clientInfoPanels.classList.remove('hidden');
+      }
+    }
+    const clientActionCards = document.getElementById('client-action-cards');
+    if (clientActionCards) {
+      if (mockData.activeProfile === 'owner') {
+        clientActionCards.classList.add('hidden');
+      } else {
+        clientActionCards.classList.remove('hidden');
       }
     }
     await fetchClientHistory();
