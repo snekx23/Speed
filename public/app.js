@@ -230,8 +230,12 @@ async function fetchRiderConsumables() {
       id: item.id,
       rider_id: escapeHtml(String(item.rider_id)),
       rider_name: escapeHtml(item.rider_name),
+      categoria: escapeHtml(item.categoria || 'Consumível'),
       item_type: escapeHtml(item.item_type),
+      quantidade: parseInt(item.quantidade || 1),
+      valor_unitario: parseFloat(item.valor_unitario || 0),
       amount: parseFloat(item.amount),
+      observacao: escapeHtml(item.observacao || ''),
       created_at: item.created_at
     }));
   } catch (err) {
@@ -5110,12 +5114,69 @@ async function updateRiderPaymentStatus(riderName, newStatus) {
 // Rider Consumables Functions
 // =====================================================================
 
+function handleConsumableCategoryChange() {
+  const selectCategory = document.getElementById('consumable-category-select');
+  const selectType = document.getElementById('consumable-type-select');
+  const qtyInput = document.getElementById('consumable-quantity');
+  
+  if (!selectCategory || !selectType) return;
+  
+  const category = selectCategory.value;
+  
+  if (category === 'Vale') {
+    selectType.innerHTML = `
+      <option value="Vale">Vale (Adiantamento em dinheiro)</option>
+    `;
+    if (qtyInput) {
+      qtyInput.value = 1;
+      qtyInput.readOnly = true;
+      qtyInput.style.cursor = 'not-allowed';
+      qtyInput.style.background = 'var(--input-bg-disabled, rgba(255,255,255,0.03))';
+    }
+  } else {
+    selectType.innerHTML = `
+      <option value="Açaí">Açaí</option>
+      <option value="Refrigerante">Refrigerante</option>
+      <option value="Lanche">Lanche</option>
+      <option value="Outros">Outros (Descrever abaixo)</option>
+    `;
+    if (qtyInput) {
+      qtyInput.readOnly = false;
+      qtyInput.style.cursor = 'default';
+      qtyInput.style.background = 'var(--input-bg)';
+    }
+  }
+  
+  handleConsumableTypeChange();
+}
+
 function handleConsumableTypeChange() {
+  const selectCategory = document.getElementById('consumable-category-select');
   const selectType = document.getElementById('consumable-type-select');
   const customGroup = document.getElementById('consumable-custom-type-group');
   const customInput = document.getElementById('consumable-custom-type');
+  const priceInput = document.getElementById('consumable-unit-price');
   
-  if (selectType && selectType.value === 'Outros') {
+  if (!selectType) return;
+  
+  const category = selectCategory ? selectCategory.value : 'Consumível';
+  const item = selectType.value;
+  
+  if (category === 'Vale') {
+    if (priceInput) priceInput.value = '';
+  } else {
+    if (item === 'Açaí') {
+      if (priceInput) priceInput.value = '12.00';
+    } else if (item === 'Refrigerante') {
+      if (priceInput) priceInput.value = '5.00';
+    } else if (item === 'Lanche') {
+      if (priceInput) priceInput.value = '15.00';
+    } else {
+      if (priceInput) priceInput.value = '0.00';
+    }
+  }
+  
+  if (item === 'Outros') {
     if (customGroup) customGroup.classList.remove('hidden');
     if (customInput) customInput.required = true;
   } else {
@@ -5124,6 +5185,19 @@ function handleConsumableTypeChange() {
       customInput.required = false;
       customInput.value = '';
     }
+  }
+  
+  recalculateConsumableTotal();
+}
+
+function recalculateConsumableTotal() {
+  const qtyInput = document.getElementById('consumable-quantity');
+  const priceInput = document.getElementById('consumable-unit-price');
+  const totalInput = document.getElementById('consumable-amount');
+  if (qtyInput && priceInput && totalInput) {
+    const qty = parseInt(qtyInput.value) || 0;
+    const price = parseFloat(priceInput.value) || 0;
+    totalInput.value = (qty * price).toFixed(2);
   }
 }
 
@@ -5155,6 +5229,8 @@ function renderRiderConsumables() {
   const startDateVal = document.getElementById('consumable-start-date').value;
   const endDateVal = document.getElementById('consumable-end-date').value;
   const searchVal = document.getElementById('consumable-search-input').value.trim().toLowerCase();
+  const categoryFilterEl = document.getElementById('consumable-category-filter');
+  const categoryFilterVal = categoryFilterEl ? categoryFilterEl.value : '';
 
   let start = startDateVal ? new Date(startDateVal) : null;
   let end = endDateVal ? new Date(endDateVal) : null;
@@ -5177,12 +5253,16 @@ function renderRiderConsumables() {
     if (searchVal && !item.rider_name.toLowerCase().includes(searchVal)) {
       return false;
     }
+    // Filter by category
+    if (categoryFilterVal && item.categoria !== categoryFilterVal) {
+      return false;
+    }
     return true;
   });
 
   const listHtml = filtered.map(item => {
     weeklyTotal += item.amount;
-    if (item.item_type === 'Vale') {
+    if (item.categoria === 'Vale') {
       valesTotal += item.amount;
     } else {
       itemsTotal += item.amount;
@@ -5196,12 +5276,29 @@ function renderRiderConsumables() {
       minute: '2-digit'
     });
 
+    const categoryBadge = item.categoria === 'Vale' 
+      ? '<span class="badge badge-warning" style="background: rgba(255, 183, 0, 0.15); color: #ffb700; border: 1px solid rgba(255, 183, 0, 0.3); font-size: 0.72rem; padding: 4px 8px; border-radius: 4px;">Vale</span>' 
+      : '<span class="badge badge-info" style="background: rgba(0, 180, 216, 0.15); color: #00b4d8; border: 1px solid rgba(0, 180, 216, 0.3); font-size: 0.72rem; padding: 4px 8px; border-radius: 4px;">Consumível</span>';
+      
+    const itemDesc = item.categoria === 'Vale' 
+      ? 'Adiantamento em dinheiro' 
+      : `${item.quantidade}x ${escapeHtml(item.item_type)}`;
+      
+    const unitPriceFmt = item.categoria === 'Vale' 
+      ? '—' 
+      : formatMoneyBR(item.valor_unitario);
+      
+    const notesFmt = item.observacao ? `<span class="text-muted" style="font-size: 0.8rem;">${escapeHtml(item.observacao)}</span>` : '—';
+
     return `
       <tr>
         <td>${dateFmt}</td>
         <td><strong>${escapeHtml(item.rider_name)}</strong> <span class="text-muted" style="font-size: 0.78rem;">(${escapeHtml(item.rider_id)})</span></td>
-        <td><span class="badge ${item.item_type === 'Vale' ? 'badge-warning' : 'badge-info'}">${escapeHtml(item.item_type)}</span></td>
+        <td>${categoryBadge}</td>
+        <td>${itemDesc}</td>
+        <td>${unitPriceFmt}</td>
         <td><strong class="text-yellow">${formatMoneyBR(item.amount)}</strong></td>
+        <td>${notesFmt}</td>
         <td>
           <button onclick="deleteRiderConsumable(${item.id})" class="btn-action btn-action-danger" title="Excluir Lançamento" style="background: transparent; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px;">
             <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
@@ -5214,7 +5311,7 @@ function renderRiderConsumables() {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" style="text-align: center; color: var(--color-text-muted); padding: 24px;">
+        <td colspan="8" style="text-align: center; color: var(--color-text-muted); padding: 24px;">
           Nenhum lançamento de consumo encontrado para os filtros selecionados.
         </td>
       </tr>
@@ -5253,6 +5350,7 @@ function clearConsumableFilters() {
   const startEl = document.getElementById('consumable-start-date');
   const endEl = document.getElementById('consumable-end-date');
   const searchEl = document.getElementById('consumable-search-input');
+  const categoryFilterEl = document.getElementById('consumable-category-filter');
   
   if (startEl) {
     const { monday } = getCurrentWeekBounds();
@@ -5264,6 +5362,9 @@ function clearConsumableFilters() {
   }
   if (searchEl) {
     searchEl.value = '';
+  }
+  if (categoryFilterEl) {
+    categoryFilterEl.value = '';
   }
   
   renderRiderConsumables();
@@ -5334,22 +5435,30 @@ async function handleRegisterConsumable(event) {
   if (!supabaseClient) return;
 
   const selectRider = document.getElementById('consumable-rider-select');
+  const selectCategory = document.getElementById('consumable-category-select');
   const selectType = document.getElementById('consumable-type-select');
   const customType = document.getElementById('consumable-custom-type');
+  const inputQuantity = document.getElementById('consumable-quantity');
+  const inputUnitPrice = document.getElementById('consumable-unit-price');
   const inputAmount = document.getElementById('consumable-amount');
+  const textareaNotes = document.getElementById('consumable-notes');
 
-  if (!selectRider || !selectType || !customType || !inputAmount) return;
+  if (!selectRider || !selectCategory || !selectType || !customType || !inputQuantity || !inputUnitPrice || !inputAmount) return;
 
   const riderOption = selectRider.options[selectRider.selectedIndex];
   const riderId = selectRider.value;
   const riderName = riderOption ? riderOption.getAttribute('data-name') : '';
   
+  const categoria = selectCategory.value;
   let itemType = selectType.value;
   if (itemType === 'Outros') {
     itemType = customType.value.trim() || 'Outro';
   }
 
-  const amount = parseFloat(inputAmount.value);
+  const quantidade = parseInt(inputQuantity.value) || 1;
+  const valorUnitario = parseFloat(inputUnitPrice.value) || 0;
+  const amount = parseFloat(inputAmount.value) || (quantidade * valorUnitario);
+  const observacao = textareaNotes ? textareaNotes.value.trim() : '';
 
   if (!riderId || !itemType || isNaN(amount) || amount <= 0) {
     alert('Por favor, preencha todos os campos corretamente.');
@@ -5365,21 +5474,21 @@ async function handleRegisterConsumable(event) {
       .insert([{
         rider_id: riderId,
         rider_name: riderName,
+        categoria: categoria,
         item_type: itemType,
-        amount: amount
+        quantidade: quantidade,
+        valor_unitario: valorUnitario,
+        amount: amount,
+        observacao: observacao
       }]);
 
     if (error) throw error;
 
     selectRider.value = '';
-    selectType.value = 'Vale';
-    customType.value = '';
-    inputAmount.value = '';
+    selectCategory.value = 'Consumível';
+    handleConsumableCategoryChange();
+    if (textareaNotes) textareaNotes.value = '';
     
-    const customGroup = document.getElementById('consumable-custom-type-group');
-    if (customGroup) customGroup.classList.add('hidden');
-    customType.required = false;
-
     showToastNotification('Consumo registrado com sucesso.');
     
     await fetchRiderConsumables();
@@ -5393,6 +5502,7 @@ async function handleRegisterConsumable(event) {
     if (submitBtn) submitBtn.disabled = false;
   }
 }
+
 
 async function deleteRiderConsumable(id) {
   if (!supabaseClient) return;
