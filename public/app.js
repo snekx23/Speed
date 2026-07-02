@@ -458,6 +458,15 @@ async function loginSuccess() {
   document.getElementById('user-display-name').innerText = creds.name;
   document.getElementById('user-display-sub').innerText = creds.role;
 
+  const clientInfoPanels = document.getElementById('client-info-panels');
+  if (clientInfoPanels) {
+    if (profile === 'owner') {
+      clientInfoPanels.classList.add('hidden');
+    } else {
+      clientInfoPanels.classList.remove('hidden');
+    }
+  }
+
   // Toggle visible sidebar navigation items depending on role
   document.getElementById('nav-owner-group').classList.add('hidden');
   document.getElementById('nav-client-group').classList.add('hidden');
@@ -633,6 +642,14 @@ async function switchDashboardTab(targetTab) {
   } else if (targetTab === 'owner-integracoes') {
     if (window.lucide) lucide.createIcons();
   } else if (targetTab === 'client-overview') {
+    const clientInfoPanels = document.getElementById('client-info-panels');
+    if (clientInfoPanels) {
+      if (mockData.activeProfile === 'owner') {
+        clientInfoPanels.classList.add('hidden');
+      } else {
+        clientInfoPanels.classList.remove('hidden');
+      }
+    }
     await fetchClientHistory();
     updateClientDashboardOverview();
     initClientOverviewChart();
