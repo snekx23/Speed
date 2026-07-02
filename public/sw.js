@@ -1,5 +1,5 @@
 // Garra Motoboy PWA — Service Worker
-const CACHE_NAME = 'garra-moto-v24';
+const CACHE_NAME = 'garra-moto-v36';
 
 // App shell assets to cache on install
 const SHELL_ASSETS = [
@@ -8,8 +8,8 @@ const SHELL_ASSETS = [
   '/motoboy.js',
   '/manifest.json',
   '/logo.png',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css',
+  'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js',
   'https://unpkg.com/lucide@latest',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
 ];
@@ -83,4 +83,10 @@ self.addEventListener('fetch', (event) => {
       });
     })
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'skip-waiting') {
+    self.skipWaiting();
+  }
 });

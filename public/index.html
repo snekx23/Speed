@@ -11,9 +11,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <!-- Leaflet CSS & JS for Real Map -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Mapbox GL JS CSS & JS for Real Map -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <!-- CSS Stylesheet -->
   <link rel="stylesheet" href="style.css">
   <!-- Chart.js CDN -->
@@ -177,9 +177,16 @@
             <button class="nav-item" data-tab="owner-rider-payments" onclick="switchDashboardTab('owner-rider-payments')">
               <i data-lucide="receipt"></i> Repasse Semanal
             </button>
+            <button class="nav-item" data-tab="owner-consumables" onclick="switchDashboardTab('owner-consumables')">
+              <i data-lucide="shopping-bag"></i> Consumíveis
+            </button>
             <button class="nav-item" data-tab="owner-support" style="position: relative;" onclick="switchDashboardTab('owner-support')">
-              <i data-lucide="message-square"></i> Suporte Chat
+              <i data-lucide="message-square"></i> Suporte do Cliente
               <span class="pulse-dot hidden" id="admin-chat-dot" style="position: absolute; top: 12px; right: 16px; width: 8px; height: 8px; border-radius: 50%; background: #ffb700; box-shadow: 0 0 8px #ffb700;"></span>
+            </button>
+            <button class="nav-item" data-tab="owner-rider-support" style="position: relative;" onclick="switchDashboardTab('owner-rider-support')">
+              <i data-lucide="message-square"></i> Suporte dos Motoboys
+              <span class="pulse-dot hidden" id="admin-rider-chat-dot" style="position: absolute; top: 12px; right: 16px; width: 8px; height: 8px; border-radius: 50%; background: #ffb700; box-shadow: 0 0 8px #ffb700;"></span>
             </button>
             <button class="nav-item" data-tab="owner-settings" onclick="switchDashboardTab('owner-settings')">
               <i data-lucide="settings"></i> Configurações
@@ -190,8 +197,8 @@
             <button class="nav-item active" data-tab="client-overview" onclick="switchDashboardTab('client-overview')">
               <i data-lucide="home"></i> Meu Comércio
             </button>
-            <button class="nav-item" data-tab="order-request" onclick="switchDashboardTab('order-request')">
-              <i data-lucide="plus-circle"></i> Nova Solicitação
+            <button class="nav-item" data-tab="client-teles" onclick="switchDashboardTab('client-teles')">
+              <i data-lucide="list-checks"></i> Teles
             </button>
             <button class="nav-item" data-tab="order-tracking" id="nav-tracking-tab" onclick="switchDashboardTab('order-tracking')" disabled>
               <i data-lucide="map-pin"></i> Rastrear Motoboy <span class="pulse-dot hidden"></span>
@@ -199,9 +206,11 @@
             <button class="nav-item" data-tab="client-history" onclick="switchDashboardTab('client-history')">
               <i data-lucide="list-ordered"></i> Histórico Entregas
             </button>
+            <!-- Hidden as requested
             <button class="nav-item" data-tab="client-ratings" onclick="switchDashboardTab('client-ratings')">
               <i data-lucide="star"></i> Avaliações
             </button>
+            -->
             <button class="nav-item" data-tab="client-support" style="position: relative;" onclick="switchDashboardTab('client-support')">
               <i data-lucide="message-square"></i> Suporte Chat
               <span class="pulse-dot hidden" id="client-chat-dot" style="position: absolute; top: 12px; right: 16px; width: 8px; height: 8px; border-radius: 50%; background: #ffb700; box-shadow: 0 0 8px #ffb700;"></span>
@@ -334,24 +343,20 @@
                 </div>
                 <div class="card-body">
                   <div class="chart-container">
-                    <canvas id="ownerOverviewChart"></canvas>
+            <canvas id="ownerOverviewChart"></canvas>
                   </div>
                 </div>
               </div>
 
               <!-- Top Client Commerces -->
               <div class="card">
-                <div class="card-header">
+                <div class="card-header flex-row" style="justify-content: space-between; align-items: center;">
                   <h3>Clientes Comerciais</h3>
-                  <button type="button" class="view-all-link" onclick="switchDashboardTab('owner-teles')">Ver teles</button>
+                  <button class="btn btn-secondary btn-sm" onclick="openAddCommerceModal()" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; height: 30px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; background-color: var(--secondary); border: 1px solid var(--border-color); color: var(--color-text); border-radius: var(--border-radius-sm);"><i data-lucide="plus" style="width: 14px; height: 14px;"></i> Novo</button>
                 </div>
                 <div class="card-body">
-                  <div class="list-container">
-                    <div class="empty-state-card" style="min-height: 240px;">
-                      <i data-lucide="store"></i>
-                      <h4>Nenhum ranking calculado</h4>
-                      <p>Quando houver histórico real de entregas por comércio, esta lista será preenchida automaticamente.</p>
-                    </div>
+                  <div class="list-container" id="owner-top-clients-list">
+                    <!-- Rendered dynamically via JS -->
                   </div>
                 </div>
               </div>
@@ -369,8 +374,39 @@
                 </div>
                 <span class="badge badge-success"><span class="dot"></span> Monitoramento GPS</span>
               </div>
-              <div class="card-body p-0" style="position: relative;">
+              <div class="card-body p-0" style="position: relative; overflow: hidden;">
                 <div id="owner-fleet-map" style="height: calc(100vh - 220px); min-height: 420px; width: 100%; border-radius: 0 0 var(--border-radius-md) var(--border-radius-md); z-index: 1;"></div>
+                <!-- Floating fleet rider dispatch panel -->
+                <div id="fleet-dispatch-panel" class="fleet-dispatch-panel hidden"></div>
+              </div>
+            </div>
+
+            <!-- Taxa de Entrega por Cidade -->
+            <div class="card" style="margin-top: 20px;">
+              <div class="card-header flex-row" style="justify-content: space-between; align-items: center;">
+                <div>
+                  <h3>Taxa de Entrega por Cidade</h3>
+                  <p class="text-muted">Defina a taxa de entrega padrão que o motoboy recebe para cada cidade.</p>
+                </div>
+                <button class="btn btn-primary" onclick="showAddCityModal()" style="display: flex; align-items: center; gap: 6px; padding: 8px 14px; font-size: 0.85rem; font-weight: 600;">
+                  <i data-lucide="plus" style="width: 16px; height: 16px;"></i> Adicionar Cidade
+                </button>
+              </div>
+              <div class="card-body">
+                <div class="table-responsive">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Cidade</th>
+                        <th>Taxa (R$)</th>
+                        <th style="text-align: right;">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cities-table-body">
+                      <!-- Rendered dynamically -->
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -404,6 +440,10 @@
                 <!-- Rendered dynamically via JS -->
               </div>
             </div>
+            <!-- Floating Button to request tele manual -->
+            <button class="fab-btn" onclick="showRequestDeliveryModal()" title="Chamar Tele Manual" onmouseenter="this.style.transform='scale(1.08)'" onmouseleave="this.style.transform='scale(1)'" style="position: fixed; bottom: 30px; right: 30px; width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), #c2410c); border: none; color: #ffffff; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(245,158,11,0.4); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; z-index: 99;">
+              <i data-lucide="plus" style="width: 24px; height: 24px; stroke-width: 2.5;"></i>
+            </button>
           </div>
 
           <!-- 1d. Owner Integrações (iFood / 99Food) -->
@@ -590,6 +630,7 @@
                         <th>Teles Concluídas</th>
                         <th>Faturamento Bruto</th>
                         <th>Taxa Garra (10%)</th>
+                        <th>Consumíveis</th>
                         <th>Valor Líquido (A Pagar)</th>
                         <th>Média por Tele</th>
                         <th>Status Pagamento</th>
@@ -597,6 +638,154 @@
                     </thead>
                     <tbody id="rider-payments-table-body"></tbody>
                   </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 8. Owner Consumables -->
+          <div id="tab-owner-consumables" class="dashboard-tab-content">
+            <!-- Date & Rider Filter Card for Consumables -->
+            <div class="card" style="margin-bottom: 20px; overflow: visible;">
+              <div class="card-body" style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; padding: 16px; overflow: visible;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Data de Início</label>
+                  <input type="date" id="consumable-start-date" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 160px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Data de Fim</label>
+                  <input type="date" id="consumable-end-date" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 160px;">
+                </div>
+                
+                <!-- Custom Rider Search Select Dropdown for Consumables -->
+                <div class="consumable-rider-search-wrapper" style="position: relative; display: flex; flex-direction: column; gap: 6px; z-index: 50;">
+                  <label style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Entregador</label>
+                  <div style="position: relative; min-width: 220px;">
+                    <input type="text" id="consumable-search-input" placeholder="Todos os entregadores" onfocus="toggleConsumableRiderSearchDropdown(true)" oninput="filterConsumableRiderSearch()" style="padding: 10px 12px; padding-right: 32px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;" autocomplete="off">
+                    <i data-lucide="chevron-down" style="position: absolute; right: 10px; top: 12px; width: 16px; height: 16px; color: var(--color-text-muted); pointer-events: none; transition: transform 0.2s;"></i>
+                  </div>
+                  <div id="consumable-rider-search-dropdown" class="hidden" style="position: absolute; top: 100%; left: 0; right: 0; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); z-index: 100; max-height: 200px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.5); margin-top: 4px; padding: 4px 0;">
+                    <!-- Populated dynamically via JS -->
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-primary" onclick="renderRiderConsumables()" style="display: flex; align-items: center; gap: 8px; padding: 11px 16px; font-weight: 600; cursor: pointer;">
+                    <i data-lucide="filter" style="width: 16px; height: 16px;"></i> <span>Filtrar</span>
+                  </button>
+                  <button class="btn btn-secondary" onclick="clearConsumableFilters()" style="display: flex; align-items: center; gap: 8px; padding: 11px 16px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-color); background: var(--secondary); color: var(--color-text);">
+                    <i data-lucide="rotate-ccw" style="width: 16px; height: 16px;"></i> <span>Limpar</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="metrics-grid" style="margin-bottom: 20px;">
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Total Consumido (Semana)</span>
+                  <i data-lucide="shopping-bag" class="text-blue"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="consumables-week-total">R$ 0,00</h3>
+                  <p class="text-muted">Descontos acumulados na semana atual.</p>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Total Vales</span>
+                  <i data-lucide="wallet" class="text-yellow"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="consumables-vales-total">R$ 0,00</h3>
+                  <p class="text-muted">Apenas adiantamentos em dinheiro.</p>
+                </div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-card-header">
+                  <span>Itens (Refri, Açaí, etc.)</span>
+                  <i data-lucide="coffee" class="text-green"></i>
+                </div>
+                <div class="metric-card-body">
+                  <h3 id="consumables-items-total">R$ 0,00</h3>
+                  <p class="text-muted">Outros produtos consumidos.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="dashboard-grid">
+              <!-- Left: List of Registered Consumables -->
+              <div class="card">
+                <div class="card-header">
+                  <h3>Histórico de Consumíveis</h3>
+                  <p class="text-muted">Todos os lançamentos realizados na semana.</p>
+                </div>
+                <div class="card-body no-padding">
+                  <div class="table-responsive">
+                    <table class="table">
+                      <thead>
+                        <tr>
+                          <th>Data / Hora</th>
+                          <th>Motoboy</th>
+                          <th>Tipo</th>
+                          <th>Valor</th>
+                          <th>Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody id="consumables-table-body">
+                        <!-- Populated by JS -->
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right: Form to Register Consumable -->
+              <div class="card">
+                <div class="card-header">
+                  <h3>Lançar Consumível</h3>
+                  <p class="text-muted">Registre vale, açaí, refrigerante ou outro item.</p>
+                </div>
+                <div class="card-body">
+                  <form id="consumable-register-form" onsubmit="handleRegisterConsumable(event)">
+                    <div class="form-group" style="margin-bottom: 16px;">
+                      <label for="consumable-rider-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Motoboy</label>
+                      <select id="consumable-rider-select" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                        <option value="">Selecione um motoboy...</option>
+                        <!-- Populated by JS -->
+                      </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 16px;">
+                      <label for="consumable-type-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Tipo de Consumo</label>
+                      <select id="consumable-type-select" onchange="handleConsumableTypeChange()" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                        <option value="Vale">Vale (Dinheiro)</option>
+                        <option value="Refrigerante">Refrigerante</option>
+                        <option value="Açaí">Açaí</option>
+                        <option value="Outros">Outros (Descrever abaixo)</option>
+                      </select>
+                    </div>
+
+                    <div class="form-group hidden" id="consumable-custom-type-group" style="margin-bottom: 16px;">
+                      <label for="consumable-custom-type" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Especificar Outro Tipo</label>
+                      <div class="input-wrapper" style="position: relative;">
+                        <i data-lucide="package" class="input-icon" style="position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; color: var(--color-text-muted);"></i>
+                        <input type="text" id="consumable-custom-type" placeholder="Ex: Sanduíche, Água" style="padding: 10px 12px 10px 36px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+                      </div>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 20px;">
+                      <label for="consumable-amount" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Valor (R$)</label>
+                      <div class="input-wrapper" style="position: relative;">
+                        <i data-lucide="dollar-sign" class="input-icon" style="position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; color: var(--color-text-muted);"></i>
+                        <input type="number" step="0.01" min="0.01" id="consumable-amount" required placeholder="0.00" style="padding: 10px 12px 10px 36px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+                      </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-block" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 12px;">
+                      <span>Registrar Consumo</span> <i data-lucide="plus"></i>
+                    </button>
+                  </form>
                 </div>
               </div>
             </div>
@@ -713,6 +902,7 @@
                 <i data-lucide="circle-check"></i>
                 <span>Pronto para operar</span>
               </div>
+              </div>
             </section>
 
             <div class="ops-actions-grid partner-actions">
@@ -781,6 +971,7 @@
                     <i data-lucide="database"></i>
                     <h4>Sem métricas simuladas</h4>
                     <p>Quando houver registros reais, as tabelas e históricos serão preenchidos automaticamente pelo banco de dados.</p>
+                  </div>
                   </div>
                 </div>
               </div>
@@ -866,8 +1057,8 @@
           </div>
 
 
-          <!-- ================= SOLICITAR TABS ================= -->
-          <!-- 1. Request Motoboy -->
+          <!-- ================= SOLICITAR & ACOMPANHAR ================= -->
+          <!-- 1. Request/Track -->
           <div id="tab-order-request" class="dashboard-tab-content">
             <div class="request-layout">
               <!-- Left side: Form -->
@@ -957,39 +1148,36 @@
                   </form>
                 </div>
               </div>
+            </div>
+          </div>
 
-              <!-- Right side: Quick Tips / Dynamic Info -->
-              <div class="request-info-sidebar">
-                <div class="card bg-gradient-yellow">
-                  <div class="card-body text-black">
-                    <h3>Atendimento Garra</h3>
-                    <p class="mt-2">Todos os envios contam com seguro de carga integrado de até R$ 500,00. Nossos motoboys utilizam baús térmicos higienizados para garantir a qualidade da comida.</p>
-                    <div class="card-decor-icon"><i data-lucide="shield-check"></i></div>
-                  </div>
+          <!-- 2. Client Teles (Acompanhamento) -->
+          <div id="tab-client-teles" class="dashboard-tab-content">
+            <!-- Pending Teles -->
+            <div>
+              <div class="section-header" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                  <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Teles Pendentes (A Despachar)</h3>
+                  <p class="text-muted">Teles aguardando atribuição pela central.</p>
                 </div>
+                <span class="badge badge-warning" id="client-pending-count-badge">0 pendentes</span>
+              </div>
+              <div class="pending-grid" id="client-pending-deliveries-container">
+                <!-- Rendered dynamically via JS -->
+              </div>
+            </div>
 
-                <div class="card mt-3">
-                  <div class="card-header">
-                    <h3>Tarifas de Logística</h3>
-                  </div>
-                  <div class="card-body">
-                    <ul class="tariffs-list">
-                      <li>
-                        <span>Distância até 2km:</span>
-                        <strong>R$ 7,90 (Fixo)</strong>
-                      </li>
-                      <li>
-                        <span>Km Adicional:</span>
-                        <strong>R$ 1,50 / km</strong>
-                      </li>
-                      <li>
-                        <span>Taxa de Chuva/Horário de Pico:</span>
-                        <strong class="text-yellow">+ R$ 3,00</strong>
-                      </li>
-                    </ul>
-                    <div class="status-indicator status-success mt-3"><i data-lucide="check-circle" class="inline-icon"></i> Tarifa normal ativa no momento</div>
-                  </div>
+            <!-- Active Deliveries -->
+            <div style="margin-top: 36px;">
+              <div class="section-header" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                  <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Teles em Andamento</h3>
+                  <p class="text-muted">Corridas em trânsito com os motoboys.</p>
                 </div>
+                <span class="badge badge-success" id="client-active-count-badge">0 em rota</span>
+              </div>
+              <div class="active-deliveries-grid" id="client-active-deliveries-container">
+                <!-- Rendered dynamically via JS -->
               </div>
             </div>
           </div>
@@ -1153,6 +1341,10 @@
                 <div style="padding: 20px 16px; border-bottom: 1px solid var(--border-color);">
                   <h3 style="font-family: var(--font-display); font-size: 0.85rem; font-weight: 700; color: var(--color-text-muted); margin: 0; text-transform: uppercase; letter-spacing: 1px;">Conversas de Suporte</h3>
                 </div>
+                <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); position: relative;">
+                  <input type="text" id="admin-chat-search" oninput="filterAdminChatChannels()" placeholder="Buscar cliente..." style="width: 100%; padding: 8px 12px 8px 32px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.82rem; outline: none;" autocomplete="off">
+                  <i data-lucide="search" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--color-text-muted);"></i>
+                </div>
                 <div id="admin-chat-channels-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 8px 0;">
                   <!-- Dynamic channel list -->
                 </div>
@@ -1185,6 +1377,59 @@
                   <!-- Message Input -->
                   <form id="admin-chat-form" onsubmit="sendAdminChatMessage(event)" style="padding: 16px; border-top: 1px solid var(--border-color); display: flex; gap: 12px; background: var(--secondary);">
                     <input type="text" id="admin-chat-input" placeholder="Digite uma resposta..." required style="flex: 1; padding: 12px 16px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.9rem; outline: none;" autocomplete="off">
+                    <button type="submit" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px; justify-content: center; min-width: 100px;">
+                      <span>Enviar</span> <i data-lucide="send" style="width: 16px; height: 16px;"></i>
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 7.5. Admin Rider Support Chat Tab -->
+          <div id="tab-owner-rider-support" class="dashboard-tab-content">
+            <div class="owner-chat-wrapper" style="display: flex; height: calc(100vh - 200px); min-height: 480px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--border-radius); overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
+               <!-- Conversations Sidebar (Left) -->
+              <div class="chat-sidebar-pane" style="width: 280px; flex-shrink: 0; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: var(--secondary); height: 100%;">
+                <div style="padding: 20px 16px; border-bottom: 1px solid var(--border-color);">
+                  <h3 style="font-family: var(--font-display); font-size: 0.85rem; font-weight: 700; color: var(--color-text-muted); margin: 0; text-transform: uppercase; letter-spacing: 1px;">Suporte dos Motoboys</h3>
+                </div>
+                <div style="padding: 12px 16px; border-bottom: 1px solid var(--border-color); position: relative;">
+                  <input type="text" id="admin-rider-chat-search" oninput="filterAdminRiderChatChannels()" placeholder="Buscar motoboy..." style="width: 100%; padding: 8px 12px 8px 32px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.82rem; outline: none;" autocomplete="off">
+                  <i data-lucide="search" style="position: absolute; left: 24px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; color: var(--color-text-muted);"></i>
+                </div>
+                <div id="admin-rider-chat-channels-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; padding: 8px 0;">
+                  <!-- Dynamic channel list -->
+                </div>
+              </div>
+              
+              <!-- Active Conversation Pane (Right) -->
+              <div id="admin-rider-active-chat-container" style="flex: 1; display: flex; flex-direction: column; background: rgba(0,0,0,0.15); height: 100%; position: relative;">
+                <!-- No Selection state -->
+                <div id="admin-rider-chat-no-selection" style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px; text-align: center; color: var(--color-text-muted); height: 100%;">
+                  <i data-lucide="message-square" style="width: 48px; height: 48px; stroke-width: 1.5; color: var(--color-text-muted);"></i>
+                  <div>
+                    <h4 style="font-size: 1.1rem; font-weight: 600; color: var(--color-text); margin: 0;">Nenhuma Conversa Selecionada</h4>
+                    <p style="font-size: 0.85rem; margin: 6px 0 0 0;">Selecione um motoboy ao lado para ver o histórico e responder.</p>
+                  </div>
+                </div>
+                
+                <!-- Chat Window (Selected State) -->
+                <div id="admin-rider-chat-window-pane" class="hidden" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
+                  <!-- Header -->
+                  <div class="chat-header-pane" style="padding: 16px 24px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; background: var(--secondary);">
+                    <div>
+                      <h3 id="admin-rider-chat-client-title" style="font-family: var(--font-display); font-size: 1.05rem; font-weight: 700; color: var(--color-text); margin: 0;">Motoboy</h3>
+                      <p id="admin-rider-chat-client-subtitle" style="font-size: 0.75rem; color: var(--color-text-muted); margin: 0; margin-top: 2px;">#MB-0000</p>
+                    </div>
+                  </div>
+                  <!-- Message list container -->
+                  <div id="admin-rider-chat-messages" style="flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;">
+                    <!-- Message bubbles injected here -->
+                  </div>
+                  <!-- Message Input -->
+                  <form id="admin-rider-chat-form" onsubmit="sendAdminRiderChatMessage(event)" style="padding: 16px; border-top: 1px solid var(--border-color); display: flex; gap: 12px; background: var(--secondary);">
+                    <input type="text" id="admin-rider-chat-input" placeholder="Digite uma resposta..." required style="flex: 1; padding: 12px 16px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.9rem; outline: none;" autocomplete="off">
                     <button type="submit" class="btn btn-primary" style="display: flex; align-items: center; gap: 8px; justify-content: center; min-width: 100px;">
                       <span>Enviar</span> <i data-lucide="send" style="width: 16px; height: 16px;"></i>
                     </button>
@@ -1365,20 +1610,6 @@
 
   </div>
 
-  <!-- Modal: Remover Tele do Motoboy -->
-  <div id="modal-remove-tele" class="modal-overlay hidden" onclick="closeRemoveTeleModal(event)">
-    <div class="modal-card" onclick="event.stopPropagation()">
-      <div class="modal-header">
-        <h3><i data-lucide="list-x" class="inline-icon text-yellow"></i> Remover Tele</h3>
-        <button class="modal-close-btn" onclick="closeRemoveTeleModal()"><i data-lucide="x"></i></button>
-      </div>
-      <div class="modal-body">
-        <p class="text-muted" id="remove-tele-rider-label" style="margin-bottom: 16px;">Escolha qual tele remover deste motoboy.</p>
-        <div id="remove-tele-list" class="list-container"></div>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal: Ações do Motoboy -->
   <div id="modal-rider-actions" class="modal-overlay hidden" onclick="closeRiderActions(event)">
     <div class="modal-card" style="max-width: 460px;" onclick="event.stopPropagation()">
@@ -1405,7 +1636,7 @@
           <button class="btn btn-secondary" onclick="locateSelectedRider()"><i data-lucide="map-pin"></i> Localizar</button>
           <button class="btn btn-secondary" onclick="openEditSelectedRider()"><i data-lucide="pencil"></i> Editar Dados</button>
           <button class="btn btn-secondary" onclick="openCredentialsForSelectedRider()"><i data-lucide="key-round"></i> Ver Acesso</button>
-          <button class="btn btn-secondary" onclick="openRemoveTeleForSelectedRider()"><i data-lucide="list-x"></i> Remover Tele</button>
+          <button class="btn btn-danger" onclick="deleteRiderAccount()"><i data-lucide="trash-2"></i> Excluir essa conta</button>
         </div>
       </div>
     </div>
@@ -1645,6 +1876,151 @@
           <button type="submit" class="btn btn-primary" id="register-motoboy-submit-btn">
             <i data-lucide="plus-circle"></i> <span>Cadastrar Motoboy</span>
           </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Adicionar/Editar Cidade -->
+  <div id="modal-city" class="modal-overlay hidden" onclick="closeCityModal(event)">
+    <div class="modal-card" style="max-width: 400px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="city-modal-title">Adicionar Cidade</h3>
+        <button class="modal-close-btn" onclick="closeCityModal()"><i data-lucide="x"></i></button>
+      </div>
+      <form id="city-form" onsubmit="handleSaveCity(event)">
+        <input type="hidden" id="city-id">
+        <div class="modal-body">
+          <div class="form-group" style="margin-bottom: 16px;">
+            <label for="city-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Nome da Cidade</label>
+            <input type="text" id="city-name" required placeholder="Ex: Sapucaia do Sul" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+          <div class="form-group">
+            <label for="city-rate" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Taxa do Motoboy (R$)</label>
+            <input type="number" step="0.01" min="0.00" id="city-rate" required placeholder="Ex: 8.00" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="closeCityModal()" style="padding: 10px 16px; font-weight: 600; font-size: 0.85rem; cursor: pointer;">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="padding: 10px 16px; font-weight: 600; font-size: 0.85rem; cursor: pointer;">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Solicitar/Criar Tele Manualmente -->
+  <div id="modal-request-delivery" class="modal-overlay hidden" onclick="closeRequestDeliveryModal(event)">
+    <div class="modal-card" style="max-width: 500px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Nova Tele Manual</h3>
+        <button class="modal-close-btn" onclick="closeRequestDeliveryModal()"><i data-lucide="x"></i></button>
+      </div>
+      <form id="request-delivery-form" onsubmit="submitDeliveryRequest(event)">
+        <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto; padding-right: 4px;">
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label for="delivery-client" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Estabelecimento (Cliente)</label>
+              <input type="text" id="delivery-client" required value="Parceiro Garra" placeholder="Ex: Lancheria Garra" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+            </div>
+            <div class="form-group">
+              <label for="delivery-dest-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Destinatário</label>
+              <input type="text" id="delivery-dest-name" required value="Cliente informado" placeholder="Ex: João da Silva" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+            </div>
+          </div>
+
+          <div class="form-group" style="position: relative;">
+            <label for="delivery-address" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Endereço de Entrega</label>
+            <input type="text" id="delivery-address" required placeholder="Digite a rua, número e cidade..." oninput="calculateEstimate()" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;" autocomplete="off">
+            <div id="address-suggestions" class="autocomplete-dropdown hidden"></div>
+          </div>
+
+          <!-- Map Preview for precise pin placement -->
+          <div class="form-group">
+            <label style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="map" style="width: 14px; height: 14px; color: var(--primary);"></i>
+              Localização no Mapa <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400;">(Arraste o pin se necessário)</span>
+            </label>
+            <div id="request-delivery-map" style="height: 180px; width: 100%; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); z-index: 1;"></div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label for="cargo-type" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Mercadoria</label>
+              <select id="cargo-type" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                <option value="lanche">🍔 Lanches e Bebidas</option>
+                <option value="pizza">🍕 Pizza Família</option>
+                <option value="doce">🍩 Doces e Sobremesas</option>
+                <option value="documento">📄 Papelada / Documentos</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="payment-method" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Forma de Pagamento</label>
+              <select id="payment-method" onchange="toggleChangeAmountGroup()" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                <option value="pix">PIX</option>
+                <option value="cartao-maquininha">Cartão (Maquininha)</option>
+                <option value="dinheiro">Dinheiro</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group hidden" id="change-amount-group">
+            <label for="change-amount" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Troco para (R$)</label>
+            <input type="number" step="1" min="0" id="change-amount" value="50" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+
+          <div class="form-group">
+            <label for="order-notes" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Observações / Detalhes</label>
+            <textarea id="order-notes" placeholder="Ex: Apto 302, bloco B..." style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; min-height: 60px; resize: vertical;"></textarea>
+          </div>
+
+          <!-- Estimate summary box -->
+          <div id="estimate-box" class="estimate-box hidden" style="background: rgba(255, 183, 0, 0.05); border: 1px dashed var(--primary); border-radius: var(--border-radius-sm); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <h4 style="font-size: 0.85rem; color: var(--primary); font-weight: 600; margin: 0; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="calculator" style="width: 14px; height: 14px;"></i> Estimativa de Custos
+            </h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; margin-top: 4px;">
+              <div>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted); display: block;">Distância</span>
+                <strong id="est-distance" style="font-size: 0.95rem; color: var(--color-text);">-</strong>
+              </div>
+              <div>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted); display: block;">Tempo Est.</span>
+                <strong id="est-time" style="font-size: 0.95rem; color: var(--color-text);">-</strong>
+              </div>
+              <div>
+                <span style="font-size: 0.7rem; color: var(--color-text-muted); display: block;">Taxa Motoboy</span>
+                <strong id="est-price" style="font-size: 1.1rem; color: var(--primary);">-</strong>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 14px;">
+          <button type="button" class="btn btn-secondary" onclick="closeRequestDeliveryModal()" style="padding: 10px 16px; font-weight: 600; font-size: 0.85rem; cursor: pointer;">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="padding: 10px 16px; font-weight: 600; font-size: 0.85rem; cursor: pointer;">Chamar Tele</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Adicionar Novo Comércio -->
+  <div id="modal-add-commerce" class="modal-overlay hidden" onclick="closeAddCommerceModal(event)">
+    <div class="modal-card" style="max-width: 400px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3><i data-lucide="plus-circle" class="inline-icon text-yellow"></i> Novo Comércio</h3>
+        <button class="modal-close-btn" onclick="closeAddCommerceModal()"><i data-lucide="x"></i></button>
+      </div>
+      <form onsubmit="submitAddCommerce(event)">
+        <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+          <div class="form-group">
+            <label for="add-commerce-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Nome do Comércio</label>
+            <input type="text" id="add-commerce-name" required placeholder="Ex: Burguer do Chef" style="padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border-color);">
+          <button type="button" class="btn btn-secondary" onclick="closeAddCommerceModal()" style="padding: 8px 16px; font-weight: 600; font-size: 0.8rem; cursor: pointer;">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="padding: 8px 16px; font-weight: 600; font-size: 0.8rem; cursor: pointer;">Adicionar</button>
         </div>
       </form>
     </div>

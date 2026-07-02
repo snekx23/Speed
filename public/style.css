@@ -637,6 +637,16 @@ select {
   background-color: var(--secondary-hover);
 }
 
+.btn-danger {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
+.btn-danger:hover {
+  background-color: #dc2626;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+}
+
 .btn-icon-round {
   width: 44px;
   height: 44px;
@@ -2168,6 +2178,130 @@ select {
   border-left: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
 }
+
+/* Mapbox GL Popup dark theme styling */
+.mapboxgl-popup-content {
+  background-color: var(--bg-card) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--border-radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 16px 20px 14px 16px !important;
+  font-family: var(--font-primary), sans-serif !important;
+}
+
+.mapboxgl-popup-tip {
+  border-top-color: var(--bg-card) !important;
+  border-bottom-color: var(--bg-card) !important;
+  border-left-color: var(--bg-card) !important;
+  border-right-color: var(--bg-card) !important;
+}
+
+/* Tip border coloring based on anchor direction */
+.mapboxgl-popup-anchor-top .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-left .mapboxgl-popup-tip { border-right-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-right .mapboxgl-popup-tip { border-left-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+.mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+
+.mapboxgl-popup-close-button {
+  color: var(--color-text-muted) !important;
+  font-size: 16px !important;
+  padding: 4px 8px !important;
+  outline: none !important;
+  border-radius: 0 var(--border-radius-md) 0 0 !important;
+}
+
+.mapboxgl-popup-close-button:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  color: var(--color-text) !important;
+}
+
+/* Floating Dispatch Panel */
+.fleet-dispatch-panel {
+  position: absolute;
+  width: 320px;
+  max-width: calc(100% - 32px);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 10;
+  padding: 16px 20px;
+  max-height: calc(100% - 32px);
+  overflow-y: auto;
+  transition: transform var(--transition-normal), opacity var(--transition-normal);
+}
+
+.fleet-dispatch-panel.hidden {
+  display: none !important;
+}
+
+/* Panel Header */
+.fleet-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.fleet-panel-header h4 {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.fleet-panel-close-btn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.fleet-panel-close-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: var(--color-text);
+}
+
+.fleet-panel-close-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.fleet-panel-subtitle {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin: 0 0 10px 0;
+}
+
+/* Mobile drawer behavior */
+@media (max-width: 576px) {
+  .fleet-dispatch-panel {
+    top: auto !important;
+    bottom: 0 !important;
+    right: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 60% !important;
+    border-radius: var(--border-radius-lg) var(--border-radius-lg) 0 0 !important;
+    border-bottom: none !important;
+    padding: 20px 20px 24px !important;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.5) !important;
+  }
+}
+
 
 .leaflet-bar a {
   background-color: var(--bg-card) !important;

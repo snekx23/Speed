@@ -19,12 +19,31 @@ export async function logWebhook(origem: string, payload: unknown, headers?: Rec
 /** Insere o pedido no pool de entregas do garra (pending_deliveries). */
 export async function inserirTele(tele: TeleNormalizada) {
   const sb = admin()
-  const { data: lojas } = await sb
-    .from('lojas')
-    .select('id, nome, pickup_lat, pickup_lng')
-    .order('created_at')
-    .limit(1)
-  const loja = lojas?.[0] ?? null
+  let loja = null
+  if (tele.loja_id) {
+    const { data } = await sb
+      .from('lojas')
+      .select('id, nome, pickup_lat, pickup_lng')
+      .eq('id', tele.loja_id)
+      .maybeSingle()
+    loja = data
+  } else if (tele.origem === '99food' && tele.food99_app_shop_id) {
+    const { data } = await sb
+      .from('lojas')
+      .select('id, nome, pickup_lat, pickup_lng')
+      .eq('food99_app_shop_id', tele.food99_app_shop_id)
+      .maybeSingle()
+    loja = data
+  }
+
+  if (!loja) {
+    const { data: lojas } = await sb
+      .from('lojas')
+      .select('id, nome, pickup_lat, pickup_lng')
+      .order('created_at')
+      .limit(1)
+    loja = lojas?.[0] ?? null
+  }
 
   if (loja?.id && tele.food99_app_shop_id) {
     await sb
@@ -43,7 +62,7 @@ export async function inserirTele(tele: TeleNormalizada) {
   const { error } = await sb.from('pending_deliveries').upsert(
     {
       id: tele.external_id,
-      client: `${loja?.nome ?? 'Loja'} (${origemTxt})`,
+      client: loja?.nome ?? 'Loja',
       dest_name: tele.cliente_nome,
       address: tele.endereco,
       dist: '',

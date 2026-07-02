@@ -17,6 +17,7 @@ export interface TeleIfood {
   lng: number | null
   valor: number | null
   itens: ItemPedido[]
+  loja_id?: string | null
 }
 
 export function normalizarPedidoIfood(p: any): TeleIfood {

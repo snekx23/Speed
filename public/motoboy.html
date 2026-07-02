@@ -13,9 +13,9 @@
   <link rel="icon" type="image/png" href="logo.png?v=3">
   <link rel="apple-touch-icon" href="logo.png?v=3">
 
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Mapbox GL JS -->
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 
   <!-- Lucide & Supabase -->
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -472,6 +472,40 @@
     .leaflet-popup-tip { background: var(--bg-card); }
     .leaflet-popup-close-button { color: var(--muted) !important; }
 
+    /* Mapbox dark overrides */
+    .mapboxgl-popup-content {
+      background: var(--bg-card) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 10px !important;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
+      color: var(--text) !important;
+      padding: 14px 18px 12px 14px !important;
+    }
+    .mapboxgl-popup-tip {
+      border-top-color: var(--bg-card) !important;
+      border-bottom-color: var(--bg-card) !important;
+      border-left-color: var(--bg-card) !important;
+      border-right-color: var(--bg-card) !important;
+    }
+    .mapboxgl-popup-close-button {
+      color: var(--muted) !important;
+      font-size: 16px !important;
+      padding: 4px 8px !important;
+      outline: none !important;
+    }
+    .mapboxgl-popup-close-button:hover {
+      background-color: rgba(255, 255, 255, 0.05) !important;
+      color: var(--text) !important;
+    }
+    .mapboxgl-popup-anchor-top .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-left .mapboxgl-popup-tip { border-right-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-right .mapboxgl-popup-tip { border-left-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+    .mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+
     /* Safe area for notch phones */
     @supports (padding-bottom: env(safe-area-inset-bottom)) {
       .pwa-bottom-nav {
@@ -722,7 +756,7 @@
     .pwa-map-avatar-btn {
       position: absolute;
       top: 16px;
-      left: 70px;
+      left: 16px;
       width: 46px;
       height: 46px;
       border-radius: 50%;
@@ -1029,18 +1063,7 @@
     <!-- Main content area -->
     <main class="pwa-main">
 
-      <!-- Novas Teles Tab (System Teles) -->
-      <div id="pwa-tab-system-teles" class="pwa-tab hidden">
-        <div class="pwa-tab-header-row" style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
-          <button class="pwa-back-btn" onclick="switchPWATab('map')" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-          </button>
-          <h2 style="font-family: var(--font-display); font-size: 1.35rem; font-weight: 800;">Teles no Sistema</h2>
-        </div>
-        <div id="pwa-system-teles-container">
-          <!-- rendered by JS -->
-        </div>
-      </div>
+      <!-- System Teles disabled -->
 
       <!-- Teles Tab -->
       <div id="pwa-tab-teles" class="pwa-tab hidden">
@@ -1079,11 +1102,6 @@
 
         <!-- Right Action Buttons -->
         <div class="pwa-map-right-actions">
-          <!-- Top Button: Novas Teles do Sistema -->
-          <button class="pwa-map-action-btn" id="map-system-teles-btn" onclick="switchPWATab('system-teles')" title="Teles no Sistema" aria-label="Teles no Sistema">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            <span class="badge hidden" id="map-system-teles-badge" style="background: #ffb700; color: white;">0</span>
-          </button>
           <!-- Bottom Button: Minhas Teles -->
           <button class="pwa-map-action-btn" id="map-my-teles-btn" onclick="switchPWATab('teles')" title="Minhas Teles" aria-label="Minhas Teles">
             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
@@ -1093,8 +1111,9 @@
 
         <!-- Floating Bottom Bar (White card) -->
         <div class="pwa-map-bottom-bar">
-          <button class="pwa-bottom-bar-icon" onclick="switchPWATab('teles')" title="Minhas Teles" aria-label="Minhas Teles">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          <button class="pwa-bottom-bar-icon" style="position: relative;" id="pwa-bottom-chat-btn" onclick="switchPWATab('chat')" title="Suporte Chat" aria-label="Suporte Chat">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <span class="pulse-dot hidden" id="pwa-chat-dot" style="position: absolute; top: 12px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: #ffb700; box-shadow: 0 0 8px #ffb700;"></span>
           </button>
           <button id="pwa-connect-btn" class="pwa-btn-connect-pill offline" onclick="toggleConnectionState()">Conectar</button>
           <button class="pwa-bottom-bar-icon" onclick="togglePWADrawer(true)" title="Menu" aria-label="Menu">
@@ -1112,28 +1131,88 @@
           <h2 style="font-family: var(--font-display); font-size: 1.35rem; font-weight: 800;">Relatórios e Extrato</h2>
         </div>
 
-        <!-- Period Selector -->
-        <div class="pwa-reports-filters" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px; background: var(--bg-card); padding: 4px; border-radius: 12px; border: 1px solid var(--border);">
-          <button class="pwa-filter-pill active" id="filter-btn-day" onclick="setReportsPeriod('day')">Dia</button>
-          <button class="pwa-filter-pill" id="filter-btn-week" onclick="setReportsPeriod('week')">Semana</button>
-          <button class="pwa-filter-pill" id="filter-btn-month" onclick="setReportsPeriod('month')">Mês</button>
+        <!-- Toggle View Selector -->
+        <div class="pwa-reports-view-toggle" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 20px; background: var(--bg-card); padding: 4px; border-radius: 12px; border: 1px solid var(--border);">
+          <button class="pwa-filter-pill active" id="reports-toggle-history" onclick="switchReportsView('history')">Histórico de Entregas</button>
+          <button class="pwa-filter-pill" id="reports-toggle-weeks" onclick="switchReportsView('weeks')">Fechamentos Semanais</button>
         </div>
 
-        <!-- Financial Summary Cards -->
-        <div class="pwa-reports-summary" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
-          <div class="pwa-summary-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center;">
-            <span style="font-size: 0.68rem; color: var(--muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Total Recebido</span>
-            <strong style="font-size: 1.35rem; color: #10b981; font-weight: 800; display: block;" id="reports-total-earned">R$ 0,00</strong>
+        <!-- Date Range Filter Selector -->
+        <div class="pwa-date-filter" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px;">
+          <span style="font-size: 0.72rem; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Busca por Período Customizado</span>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label for="pwa-filter-start-date" style="font-size: 0.68rem; color: var(--muted); font-weight: 600;">Data Início</label>
+              <input type="date" id="pwa-filter-start-date" style="background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 8px; font-size: 0.8rem; outline: none; width: 100%;">
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <label for="pwa-filter-end-date" style="font-size: 0.68rem; color: var(--muted); font-weight: 600;">Data Fim</label>
+              <input type="date" id="pwa-filter-end-date" style="background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 8px; font-size: 0.8rem; outline: none; width: 100%;">
+            </div>
           </div>
-          <div class="pwa-summary-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center;">
-            <span style="font-size: 0.68rem; color: var(--muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Corridas Feitas</span>
-            <strong style="font-size: 1.35rem; color: var(--primary); font-weight: 800; display: block;" id="reports-total-count">0</strong>
+          <div style="display: flex; gap: 8px; margin-top: 4px;">
+            <button class="pwa-btn pwa-btn-primary" onclick="applyCustomDateFilter()" style="flex: 1; font-size: 0.8rem; padding: 8px 12px; font-weight: 700; background: var(--primary); color: #181820; border: none; border-radius: 8px; cursor: pointer; text-align: center;">Filtrar Período</button>
+            <button class="pwa-btn pwa-btn-secondary" onclick="clearCustomDateFilter()" style="font-size: 0.8rem; padding: 8px 12px; font-weight: 600; background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">Limpar</button>
           </div>
         </div>
 
-        <!-- List of Completed Deliveries -->
-        <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text);">Histórico do Período</h3>
-        <div id="pwa-reports-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- Deliveries History View -->
+        <div id="reports-history-view">
+          <!-- Period Selector -->
+          <div class="pwa-reports-filters" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px; background: var(--bg-card); padding: 4px; border-radius: 12px; border: 1px solid var(--border);">
+            <button class="pwa-filter-pill active" id="filter-btn-day" onclick="setReportsPeriod('day')">Dia</button>
+            <button class="pwa-filter-pill" id="filter-btn-week" onclick="setReportsPeriod('week')">Semana</button>
+            <button class="pwa-filter-pill" id="filter-btn-month" onclick="setReportsPeriod('month')">Mês</button>
+          </div>
+
+          <!-- Financial Summary Cards -->
+          <div class="pwa-reports-summary" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px;">
+            <div class="pwa-summary-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center;">
+              <span style="font-size: 0.68rem; color: var(--muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Total Recebido</span>
+              <strong style="font-size: 1.35rem; color: #10b981; font-weight: 800; display: block;" id="reports-total-earned">R$ 0,00</strong>
+            </div>
+            <div class="pwa-summary-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center;">
+              <span style="font-size: 0.68rem; color: var(--muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Corridas Feitas</span>
+              <strong style="font-size: 1.35rem; color: var(--primary); font-weight: 800; display: block;" id="reports-total-count">0</strong>
+            </div>
+          </div>
+
+          <!-- List of Completed Deliveries -->
+          <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text);">Histórico do Período</h3>
+          <div id="pwa-reports-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Weekly Closures View (Paid/Pending) -->
+        <div id="reports-weeks-view" class="hidden">
+          <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text);">Fechamentos por Semana</h3>
+          <div id="pwa-weeks-list-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <!-- Rendered dynamically by JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Consumables Tab -->
+      <div id="pwa-tab-consumables" class="pwa-tab hidden">
+        <div class="pwa-tab-header-row" style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+          <button class="pwa-back-btn" onclick="switchPWATab('map')" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          </button>
+          <h2 style="font-family: var(--font-display); font-size: 1.35rem; font-weight: 800;">Meus Consumíveis</h2>
+        </div>
+
+        <!-- Consumables Summary Cards -->
+        <div class="pwa-consumables-summary" style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-bottom: 24px;">
+          <div class="pwa-summary-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center;">
+            <span style="font-size: 0.68rem; color: var(--muted); text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 6px;">Total Consumido</span>
+            <strong style="font-size: 1.35rem; color: var(--error); font-weight: 800; display: block;" id="consumables-total-amount">R$ 0,00</strong>
+          </div>
+        </div>
+
+        <!-- List of Consumables -->
+        <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 12px; color: var(--text);">Histórico de Consumos</h3>
+        <div id="pwa-consumables-list-container" style="display: flex; flex-direction: column; gap: 10px;">
           <!-- Rendered dynamically -->
         </div>
       </div>
@@ -1198,6 +1277,32 @@
         </div>
       </div>
 
+      <!-- Support Chat Tab -->
+      <div id="pwa-tab-chat" class="pwa-tab hidden" style="display: flex; flex-direction: column; height: 100%; padding: 0; padding-bottom: calc(var(--nav-h) + 4px); overflow: hidden;">
+        <div class="pwa-tab-header-row" style="display: flex; align-items: center; gap: 12px; padding: 16px; border-bottom: 1px solid var(--border); background: var(--bg-card); flex-shrink: 0;">
+          <button class="pwa-back-btn" onclick="switchPWATab('map')" style="background: var(--bg-card); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+          </button>
+          <div style="display: flex; flex-direction: column;">
+            <h2 style="font-family: var(--font-display); font-size: 1.2rem; font-weight: 800; margin: 0;">Suporte da Central</h2>
+            <span style="font-size: 0.72rem; color: var(--muted);">Fale diretamente com o administrador</span>
+          </div>
+        </div>
+
+        <!-- Messages Area -->
+        <div id="pwa-chat-messages" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <!-- dynamic messages -->
+        </div>
+
+        <!-- Input Row -->
+        <form id="pwa-chat-form" onsubmit="sendMotoChatMessage(event)" style="padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg-card); display: flex; gap: 10px; align-items: center; flex-shrink: 0;">
+          <input type="text" id="pwa-chat-input" placeholder="Digite sua mensagem..." required style="flex: 1; padding: 10px 14px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px; color: var(--text); font-size: 0.9rem; outline: none;" autocomplete="off">
+          <button type="submit" class="pwa-chat-send-btn" style="background: linear-gradient(135deg, var(--primary), #c2410c); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.1s; box-shadow: 0 4px 12px rgba(255, 183, 0, 0.25);">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </form>
+      </div>
+
     </main>
 
     <!-- Drawer Navigation Menu -->
@@ -1239,9 +1344,17 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
             Minhas Teles
           </button>
+          <button class="pwa-drawer-item" id="pwa-nav-chat" onclick="handleDrawerNav('chat')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Suporte Chat
+          </button>
           <button class="pwa-drawer-item" id="pwa-nav-reports" onclick="handleDrawerNav('reports')">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             Relatórios e Ganhos
+          </button>
+          <button class="pwa-drawer-item" id="pwa-nav-consumables" onclick="handleDrawerNav('consumables')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            Consumíveis
           </button>
           <button class="pwa-drawer-item" id="pwa-nav-profile" onclick="handleDrawerNav('profile')">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>

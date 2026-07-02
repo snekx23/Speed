@@ -13,6 +13,7 @@ export interface TeleNormalizada {
   valor: number | null
   itens: { nome: string; qtd: number; obs?: string }[]
   food99_app_shop_id?: string | null
+  loja_id?: string | null
 }
 
 // -------- iFood --------

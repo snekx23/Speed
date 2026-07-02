@@ -103,7 +103,7 @@ export async function listarLojasVinculadas(): Promise<any[]> {
     body: raw,
   })
   const j = await r.json()
-  return j?.data?.shops ?? []
+  return j?.data?.shop_list ?? j?.data?.shops ?? []
 }
 
 async function buscarLojasVinculadasDoBanco(): Promise<any[]> {
@@ -141,11 +141,28 @@ async function configurarLoja(appShopId: string) {
   return { online, confirm }
 }
 
-/** Setup pós-vínculo: lista lojas vinculadas e configura cada uma. */
 export async function configurarLojasVinculadas() {
-  const shops = await listarLojasVinculadas()
+  const ts = Math.floor(Date.now() / 1000)
+  const sign = assinarParams({ app_id: appId(), page_no: 1, page_size: 100, timestamp: ts })
+  const raw = `{"app_id":${appId()},"timestamp":${ts},"sign":"${sign}","page_no":1,"page_size":100}`
+
+  let rawResponse = null
+  let shops = []
+  try {
+    const r = await fetch(`${BASE}/shop/shop/list/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: raw,
+    })
+    rawResponse = await r.json()
+    shops = rawResponse?.data?.shop_list ?? rawResponse?.data?.shops ?? []
+  } catch (err) {
+    rawResponse = { error: String(err) }
+  }
+
   const lojasConfiguraveis = shops.length ? shops : await buscarLojasVinculadasDoBanco()
   const resultados: any[] = []
+  const sb = admin()
   for (const s of lojasConfiguraveis) {
     if (Number(s?.bound_flag) !== 1) continue
     const appShopId = s?.app_shop_id
@@ -155,16 +172,57 @@ export async function configurarLojasVinculadas() {
     }
     try {
       const cfg = await configurarLoja(String(appShopId))
-      await admin()
+
+      let existingLoja = null
+      const { data: byShopId } = await sb
         .from('lojas')
-        .update({ status: 'conectada' })
+        .select('id')
         .eq('food99_app_shop_id', String(appShopId))
+        .maybeSingle()
+
+      if (byShopId) {
+        existingLoja = byShopId
+      } else {
+        const { data: byName } = await sb
+          .from('lojas')
+          .select('id')
+          .eq('nome', s?.shop_name)
+          .maybeSingle()
+        existingLoja = byName
+      }
+
+      if (existingLoja) {
+        await sb
+          .from('lojas')
+          .update({
+            nome: s?.shop_name || 'Nova Loja 99Food',
+            food99_app_shop_id: String(appShopId),
+            status: 'conectada'
+          })
+          .eq('id', existingLoja.id)
+      } else {
+        await sb
+          .from('lojas')
+          .insert([{
+            nome: s?.shop_name || 'Nova Loja 99Food',
+            food99_app_shop_id: String(appShopId),
+            status: 'conectada'
+          }])
+      }
+
       resultados.push({ shop: s?.shop_name, app_shop_id: appShopId, ...cfg })
     } catch (e) {
       resultados.push({ shop: s?.shop_name, app_shop_id: appShopId, erro: String(e) })
     }
   }
-  return { total: lojasConfiguraveis.length, configuradas: resultados, source: shops.length ? '99food' : 'supabase' }
+  return { 
+    total: lojasConfiguraveis.length, 
+    configuradas: resultados, 
+    source: shops.length ? '99food' : 'supabase',
+    rawResponse,
+    appIdLength: appId().length,
+    appSecretLength: appSecret().length
+  }
 }
 
 /** Executa uma ação de pedido, renovando o token automaticamente (errno 10100). */

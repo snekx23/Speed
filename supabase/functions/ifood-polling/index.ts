@@ -72,6 +72,7 @@ async function criarTeleDoPedido(sb: any, lojaId: string, orderId: string) {
   if (!r.ok) throw new Error(`detalhe pedido ${r.status}: ${await r.text()}`)
   const pedido = await r.json()
   const t = normalizarPedidoIfood(pedido)
+  t.loja_id = lojaId
   // inserirTele enriquece cidade/taxa/loja e deixa o numero (Nº) automático.
   await inserirTele(t)
 }

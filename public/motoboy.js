@@ -1,16 +1,20 @@
 // Garra Delivery — Motoboy PWA Logic
+mapboxgl.accessToken = ['pk', 'eyJ1Ijoic25la3giLCJhIjoiY21xc3g5eXEzMGQweTJzb2xoemg1YzQwZCJ9', 'SyNFqkGgDnkuvY2wRpFDhg'].join('.');
+
 const SUPABASE_URL = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.url : 'https://faowxiyxjfogkoynsohj.supabase.co';
 const SUPABASE_KEY = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.key : 'sb_publishable_UFy_HB0JaKUVCvHUlHSQ0Q_2HFOk4_V';
 
 let db = null;
 let currentRider = null;  // fleet row of logged-in motoboy
-let riderMap = null;      // Leaflet map instance
+let riderMap = null;      // Mapbox map instance
 let realtimeChannel = null;
 let watchId = null;       // geolocation watch ID
 let lastPosition = null;  // { lat, lng }
 let hasCenteredOnce = false;
 let knownActiveTeleIds = null; // IDs of active deliveries to play chime on new arrivals
-let currentPendingTele = null; // Current pending tele displayed in the modal
+let activeRiderDeliveryMarkers = {}; // Cache active markers by order ID to avoid recreating them and closing popups
+let activeDeliveriesList = [];  // Cache list of active deliveries
+let lastActiveTeleId = null;    // Track changes to fit map bounds once
 
 // ─── INIT ────────────────────────────────────────────────────────────────────
 
@@ -38,7 +42,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function registerSW() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => {});
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => {
+        reg.update();
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (sw) sw.addEventListener('statechange', () => {
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              sw.postMessage?.('skip-waiting');
+            }
+          });
+        });
+      })
+      .catch(() => {});
   }
 }
 
@@ -137,6 +153,7 @@ function showLoginError(msg) {
 function handleMotoLogout() {
   if (!confirm('Sair do aplicativo?')) return;
   localStorage.removeItem('speedMotoSession');
+  localStorage.removeItem('activePWATab');
   if (realtimeChannel) db.removeChannel(realtimeChannel);
   if (watchId) navigator.geolocation.clearWatch(watchId);
   currentRider = null;
@@ -170,18 +187,20 @@ function showApp() {
   // Initialize connection button state
   updateConnectionButtonState(currentRider.status || 'Disponível');
 
-  // Load profile details (email and photo) and weekly earnings balance
+  // Load profile details (email and photo), weekly earnings balance and consumables
   loadLocalProfile();
   loadWeeklyBalance();
+  loadConsumablesData();
 
   // Request notification permissions
   requestNotificationPermission();
 
-  // Switch to map tab by default
+  // Switch to saved tab or fallback to map
+  const savedTab = localStorage.getItem('activePWATab');
+  const targetTab = savedTab ? savedTab : 'map';
   hasCenteredOnce = false;
-  switchPWATab('map');
+  switchPWATab(targetTab);
   subscribeRealtime();
-  updateSystemTelesCount(); // Update badge on load
   lucide.createIcons();
 }
 
@@ -299,6 +318,7 @@ async function toggleConnectionState() {
 // ─── TAB NAVIGATION ──────────────────────────────────────────────────────────
 
 function switchPWATab(tab) {
+  localStorage.setItem('activePWATab', tab);
   document.querySelectorAll('.pwa-tab').forEach(t => t.classList.add('hidden'));
   document.querySelectorAll('.pwa-drawer-item').forEach(b => b.classList.remove('active'));
 
@@ -308,6 +328,16 @@ function switchPWATab(tab) {
   const navEl = document.getElementById('pwa-nav-' + tab);
   if (navEl) navEl.classList.add('active');
 
+  // Activate bottom bar chat icon if tab is chat
+  const bottomChatBtn = document.getElementById('pwa-bottom-chat-btn');
+  if (bottomChatBtn) {
+    if (tab === 'chat') {
+      bottomChatBtn.classList.add('active');
+    } else {
+      bottomChatBtn.classList.remove('active');
+    }
+  }
+
   if (tab === 'map') {
     setTimeout(() => {
       if (!riderMap) initRiderMap();
@@ -315,8 +345,12 @@ function switchPWATab(tab) {
     }, 100);
   } else if (tab === 'reports') {
     loadReportsData();
-  } else if (tab === 'system-teles') {
-    loadSystemTeles();
+  } else if (tab === 'consumables') {
+    loadConsumablesData();
+  } else if (tab === 'chat') {
+    const chatDot = document.getElementById('pwa-chat-dot');
+    if (chatDot) chatDot.classList.add('hidden');
+    fetchMotoChatHistory();
   }
   lucide.createIcons();
 }
@@ -379,6 +413,7 @@ async function loadMyDeliveries() {
     }
   }
   knownActiveTeleIds = currentIds;
+  activeDeliveriesList = activeDeliveries;
 
   // Update map floating badges and action buttons
   updateMapOverlays(activeDeliveries);
@@ -405,6 +440,29 @@ function renderTeleCards(deliveries) {
     const isPickup   = order.status === 'A caminho da coleta';
     const isTransit  = order.status === 'Em rota de entrega';
 
+    let mapsUrl = '';
+    if (isPickup) {
+      const isCentral = order.pickup_lat !== null && order.pickup_lng !== null &&
+        Math.abs(order.pickup_lat - (-29.842173)) < 0.005 &&
+        Math.abs(order.pickup_lng - (-51.126764)) < 0.005;
+
+      if (isCentral) {
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent('Rua Ana Rosa 221, Ipiranga, Sapucaia do Sul')}&travelmode=driving`;
+      } else if (order.pickup_lat !== null && order.pickup_lng !== null && !isNaN(order.pickup_lat) && !isNaN(order.pickup_lng)) {
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${order.pickup_lat},${order.pickup_lng}&travelmode=driving`;
+      } else {
+        mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.client || 'Parceiro Garra')}`;
+      }
+    } else {
+      if (order.address) {
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(order.address)}&travelmode=driving`;
+      } else if (order.dest_lat !== null && order.dest_lng !== null && !isNaN(order.dest_lat) && !isNaN(order.dest_lng)) {
+        mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${order.dest_lat},${order.dest_lng}&travelmode=driving`;
+      } else {
+        mapsUrl = `https://www.google.com/maps/search/?api=1&query=Entregador`;
+      }
+    }
+
     const card = document.createElement('div');
     card.className = 'pwa-tele-card';
     card.innerHTML = `
@@ -420,6 +478,12 @@ function renderTeleCards(deliveries) {
         <div class="pwa-tele-row pwa-tele-meta">
           <span>Distância: <strong>${order.dist}</strong></span>
           <span>Taxa: <strong class="pwa-highlight">${order.price}</strong></span>
+        </div>
+        <div style="margin-top: 10px;">
+          <a href="${mapsUrl}" target="_blank" class="pwa-btn pwa-btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-size: 0.8rem; padding: 8px 12px; background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); font-weight: 600; cursor: pointer;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
+            Abrir no Google Maps
+          </a>
         </div>
       </div>
       <div class="pwa-tele-footer">
@@ -622,6 +686,8 @@ function subscribeRealtime() {
           sendWebNotification("Nova Tele Atribuída! 🏍️", `A tele ${payload.new.id} foi atribuída a você.`);
           playNotificationSound();
           loadMyDeliveries();
+          loadReportsData();
+          loadWeeklyBalance();
         }
       } else if (payload.eventType === 'DELETE') {
         const wasMine = payload.old && (payload.old.rider === riderName || (knownActiveTeleIds && knownActiveTeleIds.includes(payload.old.id)));
@@ -629,6 +695,8 @@ function subscribeRealtime() {
           sendWebNotification("Tele Removida! ❌", `A tele ${payload.old.id} foi removida de você.`);
           playNotificationSound();
           loadMyDeliveries();
+          loadReportsData();
+          loadWeeklyBalance();
         }
       } else if (payload.eventType === 'UPDATE') {
         const wasMine = payload.old && payload.old.rider === riderName;
@@ -638,220 +706,101 @@ function subscribeRealtime() {
           sendWebNotification("Nova Tele Atribuída! 🏍️", `A tele ${payload.new.id} foi atribuída a você.`);
           playNotificationSound();
           loadMyDeliveries();
+          loadReportsData();
+          loadWeeklyBalance();
         } else if (wasMine && !isMine) {
           sendWebNotification("Tele Removida! ❌", `A tele ${payload.new.id} foi removida de você.`);
           playNotificationSound();
           loadMyDeliveries();
+          loadReportsData();
+          loadWeeklyBalance();
         } else if (isMine) {
           loadMyDeliveries();
+          loadReportsData();
+          loadWeeklyBalance();
         }
       }
     })
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
-      table: 'pending_deliveries'
+      table: 'support_messages'
     }, (payload) => {
-      playNotificationSound();
-      sendWebNotification("Nova Tele no Sistema! 🔔", `Uma nova tele de ${payload.new.client || 'comércio'} está disponível.`);
-      updateSystemTelesCount();
-      showPWAToast(`Nova tele disponível no sistema: ${payload.new.id}`);
-      if (document.getElementById('pwa-tab-system-teles') && !document.getElementById('pwa-tab-system-teles').classList.contains('hidden')) {
-        loadSystemTeles();
-      }
-    })
-    .on('postgres_changes', {
-      event: 'DELETE',
-      schema: 'public',
-      table: 'pending_deliveries'
-    }, (payload) => {
-      updateSystemTelesCount();
-      if (document.getElementById('pwa-tab-system-teles') && !document.getElementById('pwa-tab-system-teles').classList.contains('hidden')) {
-        loadSystemTeles();
-      }
-      if (currentPendingTele && currentPendingTele.id === payload.old.id) {
-        closePendingTeleModal();
-        showPWAToast(`A tele ${payload.old.id} não está mais disponível.`);
-      }
-    })
-    .on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'pending_deliveries'
-    }, (payload) => {
-      const tele = payload.new;
-      updateSystemTelesCount();
-      if (document.getElementById('pwa-tab-system-teles') && !document.getElementById('pwa-tab-system-teles').classList.contains('hidden')) {
-        loadSystemTeles();
-      }
-
-      // If bidding started and not yet assigned
-      if (tele.bidding_started_at) {
-        const startTime = new Date(tele.bidding_started_at).getTime();
-        const nowTime = new Date().getTime();
-        const elapsed = nowTime - startTime;
-        const remaining = 10000 - elapsed;
-
-        if (remaining > 0) {
-          setTimeout(async () => {
-            if (db) {
-              await db.rpc('assign_delivery_to_closest_rider', { p_delivery_id: tele.id });
-            }
-          }, remaining);
-        } else {
-          if (db) {
-            db.rpc('assign_delivery_to_closest_rider', { p_delivery_id: tele.id });
+      const newMsg = payload.new;
+      if (newMsg.client_email === currentRider.id) {
+        if (newMsg.sender_role !== 'rider') {
+          playNotificationSound();
+          sendWebNotification("Nova Mensagem do Suporte! 💬", `${newMsg.sender_name}: ${newMsg.message}`);
+          
+          // Check if chat tab is active
+          const isChatActive = document.getElementById('pwa-tab-chat') && !document.getElementById('pwa-tab-chat').classList.contains('hidden');
+          if (!isChatActive) {
+            const chatDot = document.getElementById('pwa-chat-dot');
+            if (chatDot) chatDot.classList.remove('hidden');
           }
         }
+        
+        // Append to chat container if it exists
+        const container = document.getElementById('pwa-chat-messages');
+        if (container) {
+          const emptyState = container.querySelector('svg');
+          if (emptyState) {
+            container.innerHTML = '';
+          }
+          
+          const isMe = newMsg.sender_role === 'rider';
+          const alignStyle = isMe ? 'align-self: flex-end; align-items: flex-end;' : 'align-self: flex-start; align-items: flex-start;';
+          const bubbleStyle = isMe 
+            ? 'background: linear-gradient(135deg, var(--primary), #c2410c); color: #ffffff; border-radius: 16px 16px 2px 16px; box-shadow: 0 4px 12px rgba(255, 183, 0, 0.25);'
+            : 'background: #272732; border: 1px solid var(--border); color: var(--text); border-radius: 16px 16px 16px 2px;';
+          const time = newMsg.created_at ? new Date(newMsg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Agora';
+
+          const div = document.createElement('div');
+          div.style.display = 'contents';
+          div.innerHTML = `
+            <div style="display: flex; flex-direction: column; max-width: 80%; ${alignStyle}">
+              <span style="font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; font-weight: 500;">${newMsg.sender_name}</span>
+              <div style="padding: 10px 14px; font-size: 0.88rem; line-height: 1.45; word-break: break-word; ${bubbleStyle}">
+                ${escapeHtml(newMsg.message)}
+              </div>
+              <span style="font-size: 0.65rem; color: var(--muted); margin-top: 4px;">${time}</span>
+            </div>
+          `;
+          container.appendChild(div);
+          container.scrollTop = container.scrollHeight;
+        }
+      }
+    })
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'rider_consumables'
+    }, (payload) => {
+      if (!currentRider) return;
+      
+      const isInsert = payload.eventType === 'INSERT';
+      const isDelete = payload.eventType === 'DELETE';
+      const isUpdate = payload.eventType === 'UPDATE';
+      
+      let belongsToMe = false;
+      
+      if (isInsert && payload.new && payload.new.rider_id === currentRider.id) {
+        belongsToMe = true;
+        sendWebNotification("Novo Consumível Lançado! 🍔", `Um novo consumível de tipo ${payload.new.item_type} (${formatMoney(parseFloat(payload.new.amount))}) foi lançado para você.`);
+        playNotificationSound();
+      } else if (isDelete) {
+        // Fallback for delete: reload just in case, since old payload may not contain all columns
+        belongsToMe = true;
+      } else if (isUpdate && (payload.new.rider_id === currentRider.id || (payload.old && payload.old.rider_id === currentRider.id))) {
+        belongsToMe = true;
+      }
+      
+      if (belongsToMe) {
+        loadConsumablesData();
+        loadWeeklyClosures();
       }
     })
     .subscribe();
-}
-
-function showPendingTeleModal(tele) {
-  currentPendingTele = tele;
-  
-  const idEl = document.getElementById('pending-tele-id');
-  const clientEl = document.getElementById('pending-tele-client');
-  const addressEl = document.getElementById('pending-tele-address');
-  const distEl = document.getElementById('pending-tele-dist');
-  const priceEl = document.getElementById('pending-tele-price');
-  
-  if (idEl) idEl.innerText = tele.id || '';
-  if (clientEl) clientEl.innerText = tele.client || 'Garra Coleta';
-  if (addressEl) addressEl.innerText = tele.address || 'Destino';
-  if (distEl) distEl.innerText = tele.dist || '0 km';
-  if (priceEl) priceEl.innerText = tele.price || 'R$ 0,00';
-  
-  const modal = document.getElementById('pwa-pending-tele-modal');
-  if (modal) {
-    modal.classList.remove('hidden');
-  }
-}
-
-function closePendingTeleModal() {
-  const modal = document.getElementById('pwa-pending-tele-modal');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
-  currentPendingTele = null;
-}
-
-async function acceptSelectedPendingTele() {
-  if (!db || !currentRider || !currentPendingTele) return;
-  
-  if (!lastPosition) {
-    alert("Para aceitar a tele, por favor ative seu GPS e permita o acesso à localização.");
-    return;
-  }
-
-  // Verificar limite de entregas simultâneas
-  try {
-    const { data: activeDeliveries, error: countErr } = await db
-      .from('client_history')
-      .select('id')
-      .eq('rider', currentRider.name)
-      .neq('status', 'Entregue');
-
-    if (countErr) throw countErr;
-
-    const count = activeDeliveries ? activeDeliveries.length : 0;
-
-    const { data: fleetData, error: limitErr } = await db
-      .from('fleet')
-      .select('max_simultaneous_deliveries')
-      .eq('id', currentRider.id)
-      .maybeSingle();
-
-    if (limitErr) throw limitErr;
-
-    const limit = fleetData ? (parseInt(fleetData.max_simultaneous_deliveries) || 1) : 1;
-
-    if (count >= limit) {
-      alert(`Você atingiu o limite de entregas simultâneas (${limit}). Conclua suas entregas ativas antes de aceitar uma nova.`);
-      return;
-    }
-  } catch (err) {
-    console.error("Erro ao verificar limite de entregas simultâneas:", err);
-  }
-
-  const btn = document.getElementById('pending-tele-accept-btn');
-  const oldText = btn ? btn.innerText : 'Aceitar';
-  if (btn) {
-    btn.disabled = true;
-    btn.innerText = 'Registrando Aceite...';
-  }
-  
-  const tele = currentPendingTele;
-  
-  try {
-    // 1. Calculate distance from rider to pickup point (restaurant)
-    const pickupLat = parseFloat(tele.pickup_lat) || -23.55052;
-    const pickupLng = parseFloat(tele.pickup_lng) || -46.633308;
-    const distToPickup = calculateHaversineDistance(lastPosition.lat, lastPosition.lng, pickupLat, pickupLng);
-
-    // 2. Insert bid to delivery_bids table
-    const { error: bidErr } = await db
-      .from('delivery_bids')
-      .insert([{
-        delivery_id: tele.id,
-        rider_id: currentRider.id,
-        rider_name: currentRider.name,
-        distance_to_pickup: distToPickup
-      }]);
-
-    if (bidErr) {
-      console.error("Error inserting bid:", bidErr);
-      alert("Erro ao registrar seu aceite. Tente novamente.");
-      if (btn) {
-        btn.disabled = false;
-        btn.innerText = oldText;
-      }
-      return;
-    }
-
-    // 3. Try to start the 10-second bidding window atomically if not already started
-    const { data: updateData, error: updateErr } = await db
-      .from('pending_deliveries')
-      .update({ bidding_started_at: new Date().toISOString() })
-      .eq('id', tele.id)
-      .is('bidding_started_at', null)
-      .select();
-
-    if (updateErr) {
-      console.error("Error setting bidding window start time:", updateErr);
-    }
-
-    // If this client successfully started the bidding window, start local 10s assignment execution fallback
-    if (updateData && updateData.length > 0) {
-      setTimeout(async () => {
-        if (db) {
-          await db.rpc('assign_delivery_to_closest_rider', { p_delivery_id: tele.id });
-        }
-      }, 10000);
-    }
-
-    // 4. Update button UI to show confirmation waiting status
-    if (btn) {
-      btn.innerText = 'Aguardando Aproximação...';
-      btn.style.background = '#8e8e9f';
-    }
-    
-    showPWAToast("Aceite registrado! Analisando motoboy mais próximo (~10 segundos)...");
-    
-    // Close modal after 3 seconds so motoboy returns to map while waiting
-    setTimeout(() => {
-      closePendingTeleModal();
-    }, 3000);
-
-  } catch (err) {
-    console.error('Error accepting tele:', err);
-    alert('Erro de conexão ao aceitar tele.');
-    if (btn) {
-      btn.disabled = false;
-      btn.innerText = oldText;
-    }
-  }
 }
 
 // ─── MAP ─────────────────────────────────────────────────────────────────────
@@ -860,11 +809,35 @@ function initRiderMap() {
   const mapEl = document.getElementById('pwa-map');
   if (!mapEl) return;
 
-  riderMap = L.map('pwa-map', { zoomControl: true, attributionControl: false }).setView([-23.55052, -46.633308], 14);
+  riderMap = new mapboxgl.Map({
+    container: 'pwa-map',
+    style: 'mapbox://styles/mapbox/dark-v11',
+    center: lastPosition ? [lastPosition.lng, lastPosition.lat] : [-51.126764, -29.842173], // [lng, lat] (Sapucaia do Sul Central)
+    zoom: 14
+  });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 20
-  }).addTo(riderMap);
+
+
+  // Permanent Collection Central Marker (Rua Ana Rosa 221)
+  const centralEl = document.createElement('div');
+  centralEl.style.width = '24px';
+  centralEl.style.height = '24px';
+  centralEl.style.backgroundColor = '#ffffff';
+  centralEl.style.borderRadius = '50%';
+  centralEl.style.border = '3px solid #ffb700';
+  centralEl.style.boxShadow = '0 0 15px rgba(255, 183, 0, 0.6)';
+  centralEl.style.display = 'flex';
+  centralEl.style.alignItems = 'center';
+  centralEl.style.justifyContent = 'center';
+  centralEl.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>`;
+
+  const centralPopup = new mapboxgl.Popup({ offset: 15 })
+    .setHTML(`<div style="font-family:var(--font);color:#fff;padding:2px;"><strong style="font-size:0.88rem;display:block;margin-bottom:2px;">Central de Coleta</strong><span style="font-size:0.78rem;color:var(--muted);">Rua Ana Rosa 221, Ipiranga</span></div>`);
+
+  new mapboxgl.Marker(centralEl)
+    .setLngLat([-51.126764, -29.842173])
+    .setPopup(centralPopup)
+    .addTo(riderMap);
 
   if (lastPosition) {
     placeRiderMarker(lastPosition.lat, lastPosition.lng);
@@ -876,24 +849,40 @@ let riderMarker = null;
 function placeRiderMarker(lat, lng) {
   if (!riderMap) return;
 
-  const iconHtml = `
-    <div style="width:22px;height:22px;background:#ffb700;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(255,183,0,0.7);display:flex;align-items:center;justify-content:center;">
-      <div style="width:6px;height:6px;background:#fff;border-radius:50%;"></div>
-    </div>
-  `;
-  const icon = L.divIcon({ html: iconHtml, className: '', iconSize: [22, 22], iconAnchor: [11, 11] });
+  const popupContent = `<strong>${currentRider ? currentRider.name : 'Você'}</strong><br>Sua localização atual`;
 
   if (riderMarker) {
-    riderMarker.setLatLng([lat, lng]);
+    riderMarker.setLngLat([lng, lat]);
+    riderMarker.getPopup().setHTML(popupContent);
   } else {
-    riderMarker = L.marker([lat, lng], { icon }).addTo(riderMap);
-    riderMarker.bindPopup(`<strong>${currentRider ? currentRider.name : 'Você'}</strong><br>Sua localização atual`);
+    const el = document.createElement('div');
+    el.style.width = '22px';
+    el.style.height = '22px';
+    el.style.backgroundColor = '#ffb700';
+    el.style.borderRadius = '50%';
+    el.style.border = '3px solid #fff';
+    el.style.boxShadow = '0 0 12px rgba(255,183,0,0.7)';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
+    el.innerHTML = `<div style="width:6px;height:6px;background:#fff;border-radius:50%;"></div>`;
+
+    const popup = new mapboxgl.Popup({ offset: 15 }).setHTML(popupContent);
+
+    riderMarker = new mapboxgl.Marker(el)
+      .setLngLat([lng, lat])
+      .setPopup(popup)
+      .addTo(riderMap);
   }
 
   if (!hasCenteredOnce) {
-    riderMap.setView([lat, lng], 15);
+    riderMap.setCenter([lng, lat]);
+    riderMap.setZoom(15);
     hasCenteredOnce = true;
   }
+
+  // Update delivery markers/lines with the new rider position
+  updateMapOverlays(activeDeliveriesList || []);
 }
 
 function startGeolocation() {
@@ -1240,9 +1229,72 @@ async function loadWeeklyBalance() {
 
 // ─── MAP INTERACTION OVERLAYS ───────────────────────────────────────────────
 
+function safeAddRouteLayer(mapInstance, sourceId, layerId, startCoords, endCoords, color) {
+  if (!mapInstance) return;
+
+  const geojson = {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [startCoords[1], startCoords[0]], // [lng, lat]
+        [endCoords[1], endCoords[0]]
+      ]
+    }
+  };
+
+  const draw = () => {
+    if (!mapInstance.getSource(sourceId)) {
+      mapInstance.addSource(sourceId, { type: 'geojson', data: geojson });
+      mapInstance.addLayer({
+        id: layerId,
+        type: 'line',
+        source: sourceId,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': color || '#10b981',
+          'line-width': 3.5,
+          'line-dasharray': [2, 4]
+        }
+      });
+    } else {
+      const src = mapInstance.getSource(sourceId);
+      if (src && typeof src.setData === 'function') {
+        src.setData(geojson);
+      }
+    }
+  };
+
+  if (mapInstance.isStyleLoaded()) {
+    draw();
+  } else {
+    mapInstance.once('style.load', draw);
+  }
+}
+
+function safeRemoveRouteLayer(mapInstance, sourceId, layerId) {
+  if (!mapInstance) return;
+  const remove = () => {
+    if (mapInstance.getLayer(layerId)) {
+      mapInstance.removeLayer(layerId);
+    }
+    if (mapInstance.getSource(sourceId)) {
+      mapInstance.removeSource(sourceId);
+    }
+  };
+
+  if (mapInstance.isStyleLoaded()) {
+    remove();
+  } else {
+    mapInstance.once('style.load', remove);
+  }
+}
+
 function centerMapOnRider() {
   if (riderMap && lastPosition) {
-    riderMap.setView([lastPosition.lat, lastPosition.lng], 16);
+    riderMap.setCenter([lastPosition.lng, lastPosition.lat]);
+    riderMap.setZoom(16);
   }
 }
 
@@ -1256,6 +1308,120 @@ function updateMapOverlays(deliveries) {
     } else {
       badge.classList.add('hidden');
     }
+  }
+
+  if (!riderMap) return;
+
+  const bounds = new mapboxgl.LngLatBounds();
+  if (lastPosition && lastPosition.lat && lastPosition.lng) {
+    bounds.extend([lastPosition.lng, lastPosition.lat]);
+  }
+
+  const currentActiveIds = new Set();
+
+  deliveries.forEach(order => {
+    let targetLat = null;
+    let targetLng = null;
+    let title = '';
+    let addressInfo = order.address || '';
+
+    if (order.status === 'Em rota de entrega') {
+      targetLat = order.dest_lat !== null ? parseFloat(order.dest_lat) : null;
+      targetLng = order.dest_lng !== null ? parseFloat(order.dest_lng) : null;
+      title = `Entrega: ${order.destName || 'Cliente'}`;
+    }
+
+    if (targetLat !== null && targetLng !== null && !isNaN(targetLat) && !isNaN(targetLng)) {
+      currentActiveIds.add(order.id);
+      bounds.extend([targetLng, targetLat]);
+
+      // Define style: Green for Delivery (entrega)
+      const bgColor = '#10b981';
+      const shadowColor = 'rgba(16,185,129,0.6)';
+      const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
+
+      const iconHtml = `
+        <div style="background: ${bgColor}; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px ${shadowColor};">
+          ${iconSvg}
+        </div>
+      `;
+
+      const mapsUrl = order.address 
+        ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(order.address)}&travelmode=driving`
+        : `https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}&travelmode=driving`;
+      
+      const popupContent = `
+        <div style="font-family: var(--font-sans); color: #fff; padding: 2px;">
+          <strong style="font-size: 0.9rem; display: block; margin-bottom: 4px;">${title}</strong>
+          <span style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">${addressInfo}</span>
+          <a href="${mapsUrl}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; color: #ffb700; text-decoration: none; font-weight: 700; font-size: 0.8rem; background: rgba(255,183,0,0.1); padding: 6px 10px; border-radius: 4px; border: 1px solid #ffb700; cursor: pointer;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
+            Navegar no Google Maps
+          </a>
+        </div>
+      `;
+
+      const sourceId = `route-source-${order.id}`;
+      const layerId = `route-layer-${order.id}`;
+
+      // If marker already exists, update position and polyline
+      if (activeRiderDeliveryMarkers[order.id]) {
+        const entry = activeRiderDeliveryMarkers[order.id];
+        
+        // Update marker latlng if changed
+        if (entry.lat !== targetLat || entry.lng !== targetLng) {
+          entry.marker.setLngLat([targetLng, targetLat]);
+          entry.lat = targetLat;
+          entry.lng = targetLng;
+        }
+
+        entry.marker.getPopup().setHTML(popupContent);
+
+        if (lastPosition && lastPosition.lat && lastPosition.lng) {
+          safeAddRouteLayer(riderMap, sourceId, layerId, [lastPosition.lat, lastPosition.lng], [targetLat, targetLng], bgColor);
+        } else {
+          safeRemoveRouteLayer(riderMap, sourceId, layerId);
+        }
+      } else {
+        // Create new marker
+        const el = document.createElement('div');
+        el.innerHTML = iconHtml;
+
+        const popup = new mapboxgl.Popup({ offset: 15, closeOnClick: false, autoClose: false }).setHTML(popupContent);
+        
+        const marker = new mapboxgl.Marker(el)
+          .setLngLat([targetLng, targetLat])
+          .setPopup(popup)
+          .addTo(riderMap);
+
+        marker.togglePopup(); // Open automatically by default
+
+        if (lastPosition && lastPosition.lat && lastPosition.lng) {
+          safeAddRouteLayer(riderMap, sourceId, layerId, [lastPosition.lat, lastPosition.lng], [targetLat, targetLng], bgColor);
+        }
+
+        activeRiderDeliveryMarkers[order.id] = { marker, lat: targetLat, lng: targetLng };
+      }
+    }
+  });
+
+  // Clean up any markers that are no longer active
+  for (const id in activeRiderDeliveryMarkers) {
+    if (!currentActiveIds.has(id)) {
+      const entry = activeRiderDeliveryMarkers[id];
+      if (entry.marker) entry.marker.remove();
+      safeRemoveRouteLayer(riderMap, `route-source-${id}`, `route-layer-${id}`);
+      delete activeRiderDeliveryMarkers[id];
+    }
+  }
+
+  // Fit bounds once if active tele ID changed to show both the rider and target clearly
+  const activeTeleId = deliveries.length > 0 ? deliveries[0].id : null;
+  if (activeTeleId !== lastActiveTeleId && !bounds.isEmpty()) {
+    riderMap.fitBounds(bounds, { padding: 50, maxZoom: 16 });
+    lastActiveTeleId = activeTeleId;
+  } else if (activeTeleId === null) {
+    lastActiveTeleId = null;
   }
 }
 
@@ -1302,6 +1468,35 @@ async function loadReportsData() {
 
   riderHistory = data;
   renderReports(currentPeriod);
+  loadWeeklyClosures();
+}
+
+function applyCustomDateFilter() {
+  const startVal = document.getElementById('pwa-filter-start-date').value;
+  const endVal = document.getElementById('pwa-filter-end-date').value;
+
+  if (!startVal && !endVal) {
+    showPWAToast("Escolha pelo menos uma data.");
+    return;
+  }
+
+  currentPeriod = 'custom';
+
+  // Deactivate period selector pills since we are in custom mode
+  document.querySelectorAll('.pwa-reports-filters .pwa-filter-pill').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  renderReports('custom');
+  loadWeeklyClosures();
+}
+
+function clearCustomDateFilter() {
+  document.getElementById('pwa-filter-start-date').value = '';
+  document.getElementById('pwa-filter-end-date').value = '';
+
+  // Restore default day filter
+  setReportsPeriod('day');
 }
 
 function setReportsPeriod(period) {
@@ -1324,9 +1519,29 @@ function renderReports(period) {
 
   if (!listContainer) return;
 
+  let startDate = null;
+  let endDate = null;
+
+  const startVal = document.getElementById('pwa-filter-start-date').value;
+  const endVal = document.getElementById('pwa-filter-end-date').value;
+
+  if (startVal) {
+    startDate = new Date(startVal);
+    startDate.setHours(0, 0, 0, 0);
+  }
+  if (endVal) {
+    endDate = new Date(endVal);
+    endDate.setHours(23, 59, 59, 999);
+  }
+
   // Filter deliveries based on date period
   const filtered = riderHistory.filter(order => {
     const orderDate = parseOrderDate(order.date);
+    if (period === 'custom') {
+      if (startDate && orderDate < startDate) return false;
+      if (endDate && orderDate > endDate) return false;
+      return true;
+    }
     if (period === 'day') return isDateToday(orderDate);
     if (period === 'week') return isDateInCurrentWeek(orderDate);
     if (period === 'month') return isDateInCurrentMonth(orderDate);
@@ -1361,6 +1576,288 @@ function renderReports(period) {
       </div>
     </div>
   `).join('');
+}
+
+function switchReportsView(view) {
+  const historyToggle = document.getElementById('reports-toggle-history');
+  const weeksToggle = document.getElementById('reports-toggle-weeks');
+  const historyView = document.getElementById('reports-history-view');
+  const weeksView = document.getElementById('reports-weeks-view');
+
+  if (view === 'history') {
+    if (historyToggle) historyToggle.classList.add('active');
+    if (weeksToggle) weeksToggle.classList.remove('active');
+    if (historyView) historyView.classList.remove('hidden');
+    if (weeksView) weeksView.classList.add('hidden');
+  } else {
+    if (historyToggle) historyToggle.classList.remove('active');
+    if (weeksToggle) weeksToggle.classList.add('active');
+    if (historyView) historyView.classList.add('hidden');
+    if (weeksView) weeksView.classList.remove('hidden');
+    loadWeeklyClosures();
+  }
+}
+
+async function loadWeeklyClosures() {
+  const container = document.getElementById('pwa-weeks-list-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="pwa-loading" style="padding: 30px 0;">
+        <div class="pwa-spinner"></div>
+      </div>
+    `;
+  }
+
+  if (!db || !currentRider) return;
+
+  try {
+    const { data: deliveries, error: deliveriesErr } = await db
+      .from('client_history')
+      .select('*')
+      .eq('rider', currentRider.name)
+      .or('status.eq.Entregue,status.eq.Concluído');
+
+    if (deliveriesErr) throw deliveriesErr;
+
+    const { data: consumables, error: consumablesErr } = await db
+      .from('rider_consumables')
+      .select('*')
+      .eq('rider_id', currentRider.id);
+
+    if (consumablesErr) throw consumablesErr;
+
+    const weeks = {};
+
+    function getMondayOfDate(date) {
+      const d = new Date(date);
+      const day = d.getDay();
+      const monday = new Date(d);
+      monday.setHours(0, 0, 0, 0);
+      monday.setDate(d.getDate() - ((day + 6) % 7));
+      return monday;
+    }
+
+    (deliveries || []).forEach(order => {
+      const orderDate = parseOrderDate(order.date);
+      const mon = getMondayOfDate(orderDate);
+      const key = mon.toISOString();
+
+      if (!weeks[key]) {
+        weeks[key] = {
+          monday: mon,
+          sunday: new Date(mon),
+          deliveriesCount: 0,
+          gross: 0,
+          consumablesTotal: 0,
+          isPaid: true
+        };
+        weeks[key].sunday.setDate(mon.getDate() + 6);
+        weeks[key].sunday.setHours(23, 59, 59, 999);
+      }
+
+      weeks[key].deliveriesCount += 1;
+      weeks[key].gross += parseMoney(order.price);
+      if (order.payment_status !== 'Pago') {
+        weeks[key].isPaid = false;
+      }
+    });
+
+    (consumables || []).forEach(item => {
+      const itemDate = item.created_at ? new Date(item.created_at) : new Date();
+      const mon = getMondayOfDate(itemDate);
+      const key = mon.toISOString();
+
+      if (!weeks[key]) {
+        weeks[key] = {
+          monday: mon,
+          sunday: new Date(mon),
+          deliveriesCount: 0,
+          gross: 0,
+          consumablesTotal: 0,
+          isPaid: true
+        };
+        weeks[key].sunday.setDate(mon.getDate() + 6);
+        weeks[key].sunday.setHours(23, 59, 59, 999);
+      }
+
+      weeks[key].consumablesTotal += parseFloat(item.amount) || 0;
+    });
+
+    renderWeeklyClosures(weeks);
+  } catch (err) {
+    console.error("Error loading weekly closures:", err);
+    if (container) container.innerHTML = '<p class="pwa-empty-msg">Erro ao carregar fechamentos.</p>';
+  }
+}
+
+function renderWeeklyClosures(weeks) {
+  const container = document.getElementById('pwa-weeks-list-container');
+  if (!container) return;
+
+  let startDate = null;
+  let endDate = null;
+
+  if (currentPeriod === 'custom') {
+    const startVal = document.getElementById('pwa-filter-start-date').value;
+    const endVal = document.getElementById('pwa-filter-end-date').value;
+
+    if (startVal) {
+      startDate = new Date(startVal);
+      startDate.setHours(0, 0, 0, 0);
+    }
+    if (endVal) {
+      endDate = new Date(endVal);
+      endDate.setHours(23, 59, 59, 999);
+    }
+  }
+
+  const sortedKeys = Object.keys(weeks).filter(key => {
+    const week = weeks[key];
+    if (currentPeriod === 'custom') {
+      if (startDate && week.sunday < startDate) return false;
+      if (endDate && week.monday > endDate) return false;
+    }
+    return true;
+  }).sort((a, b) => new Date(b) - new Date(a));
+
+  if (sortedKeys.length === 0) {
+    container.innerHTML = `
+      <div class="pwa-empty-state" style="text-align: center; padding: 40px 20px; color: var(--muted);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 16px; opacity: 0.3; display: block; margin-left: auto; margin-right: auto;"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+        <p style="font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 6px;">Nenhum fechamento semanal.</p>
+        <span style="font-size: 0.85rem;">Você não possui corridas ou consumíveis registrados.</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = '';
+  sortedKeys.forEach(key => {
+    const week = weeks[key];
+    const gross = week.gross;
+    const discount = gross * 0.10;
+    const consumables = week.consumablesTotal;
+    const net = gross * 0.90 - consumables;
+
+    const fmt = { day: '2-digit', month: '2-digit' };
+    const dateRangeLabel = `${week.monday.toLocaleDateString('pt-BR', fmt)} a ${week.sunday.toLocaleDateString('pt-BR', fmt)}`;
+
+    const statusBadge = week.isPaid 
+      ? `<span class="pwa-tele-status status-success" style="font-weight: 700; text-transform: uppercase;">PAGO</span>`
+      : `<span class="pwa-tele-status status-progress" style="font-weight: 700; text-transform: uppercase;">PENDENTE</span>`;
+
+    const card = document.createElement('div');
+    card.className = 'pwa-tele-card';
+    card.style.marginBottom = '14px';
+    card.innerHTML = `
+      <div class="pwa-tele-header" style="padding: 12px 16px;">
+        <strong class="pwa-tele-id" style="font-size: 0.95rem; color: var(--text); font-family: var(--font-display);">${dateRangeLabel}</strong>
+        ${statusBadge}
+      </div>
+      <div class="pwa-tele-body" style="padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+          <span style="color: var(--muted);">Corridas Concluídas:</span>
+          <strong>${week.deliveriesCount}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+          <span style="color: var(--muted);">Consumíveis / Vales:</span>
+          <strong style="color: var(--error);">- ${formatMoney(consumables)}</strong>
+        </div>
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 4px 0;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 700;">
+          <span style="color: var(--text);">Saldo Líquido:</span>
+          <strong style="color: #10b981;">${formatMoney(net)}</strong>
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+// ─── CONSUMABLES LOADER AND RENDERER ─────────────────────────────────────────
+
+async function loadConsumablesData() {
+  const container = document.getElementById('pwa-consumables-list-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="pwa-loading" style="padding: 30px 0;">
+        <div class="pwa-spinner"></div>
+      </div>
+    `;
+  }
+
+  if (!db || !currentRider) return;
+
+  try {
+    const { data, error } = await db
+      .from('rider_consumables')
+      .select('*')
+      .eq('rider_id', currentRider.id)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    renderConsumablesList(data || []);
+  } catch (err) {
+    console.error("Error loading consumables:", err);
+    if (container) container.innerHTML = '<p class="pwa-empty-msg">Erro ao carregar consumíveis.</p>';
+  }
+}
+
+function renderConsumablesList(list) {
+  const container = document.getElementById('pwa-consumables-list-container');
+  const totalAmountEl = document.getElementById('consumables-total-amount');
+
+  if (!container) return;
+
+  let totalAmount = 0;
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="pwa-empty-state" style="text-align: center; padding: 40px 20px; color: var(--muted);">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 16px; opacity: 0.3; display: block; margin-left: auto; margin-right: auto;"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/></svg>
+        <p style="font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 6px;">Nenhum consumível lançado.</p>
+        <span style="font-size: 0.85rem;">Você não possui lançamentos de consumíveis.</span>
+      </div>
+    `;
+    if (totalAmountEl) totalAmountEl.innerText = formatMoney(0);
+    return;
+  }
+
+  container.innerHTML = '';
+  list.forEach(item => {
+    const amount = parseFloat(item.amount) || 0;
+    totalAmount += amount;
+
+    const date = item.created_at ? new Date(item.created_at).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }) : 'Data desconhecida';
+
+    const card = document.createElement('div');
+    card.className = 'pwa-report-item';
+    card.style.background = 'var(--bg-card)';
+    card.style.border = '1px solid var(--border)';
+    card.style.borderRadius = 'var(--radius)';
+    card.style.padding = '14px 16px';
+    card.style.marginBottom = '10px';
+    card.style.display = 'flex';
+    card.style.justifyContent = 'space-between';
+    card.style.alignItems = 'center';
+
+    card.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 4px; text-align: left;">
+        <strong style="font-size: 0.95rem; font-weight: 700; color: var(--text);">${escapeHtml(item.item_type)}</strong>
+        <span style="font-size: 0.72rem; color: var(--muted);">${date}</span>
+      </div>
+      <strong style="font-size: 1rem; color: var(--error); font-weight: 800;">- ${formatMoney(amount)}</strong>
+    `;
+    container.appendChild(card);
+  });
+
+  if (totalAmountEl) totalAmountEl.innerText = formatMoney(totalAmount);
 }
 
 // ─── PWA INSTALLATION HANDLER ────────────────────────────────────────────────
@@ -1418,131 +1915,6 @@ window.addEventListener('appinstalled', () => {
   if (drawerInstallBtn) drawerInstallBtn.classList.add('hidden');
 });
 
-// ─── NEW SYSTEM TELES & MATCHMAKING SUPPORT ────────────────────────────────────
-
-async function loadSystemTeles() {
-  const container = document.getElementById('pwa-system-teles-container');
-  if (!container) return;
-
-  container.innerHTML = `
-    <div class="pwa-loading">
-      <div class="pwa-spinner"></div>
-      <p>Carregando teles do sistema...</p>
-    </div>
-  `;
-
-  if (!db) return;
-
-  try {
-    const { data, error } = await db
-      .from('pending_deliveries')
-      .select('*')
-      .order('id', { ascending: true });
-
-    if (error) throw error;
-
-    renderSystemTelesList(data || []);
-  } catch (err) {
-    console.error("Error loading system teles:", err);
-    container.innerHTML = `<p class="pwa-empty-msg">Erro ao carregar teles do sistema.</p>`;
-  }
-}
-
-function renderSystemTelesList(teles) {
-  const container = document.getElementById('pwa-system-teles-container');
-  if (!container) return;
-
-  if (teles.length === 0) {
-    container.innerHTML = `
-      <div class="pwa-empty-state">
-        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-        <p>Nenhuma tele pendente no sistema.</p>
-        <span>Aguarde novas chamadas dos comércios.</span>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = '';
-  teles.forEach(order => {
-    const card = document.createElement('div');
-    card.className = 'pwa-tele-card';
-    card.innerHTML = `
-      <div class="pwa-tele-header">
-        <strong class="pwa-tele-id">${order.id}</strong>
-        <span class="pwa-tele-status status-warning" style="background: rgba(245,158,11,0.15); color: #f59e0b; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">Pendente</span>
-      </div>
-      <div class="pwa-tele-body">
-        <div class="pwa-tele-row" style="margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--primary);"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-          <strong style="color: var(--primary); font-size: 0.88rem;">Origem: ${order.client}</strong>
-        </div>
-        <div class="pwa-tele-row" style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-          <span>Destino: ${order.address}</span>
-        </div>
-        <div class="pwa-tele-row pwa-tele-meta" style="margin-top: 8px; display: flex; justify-content: space-between;">
-          <span>Distância: <strong>${order.dist}</strong></span>
-          <span>Taxa: <strong class="pwa-highlight" style="color: var(--primary);">${order.price}</strong></span>
-        </div>
-        <div class="pwa-tele-row pwa-tele-meta" style="margin-top: 4px; font-size: 0.78rem; color: var(--text-muted);">
-          <span>Pagamento: <strong>${order.payment}</strong></span>
-        </div>
-      </div>
-      <div class="pwa-tele-footer" style="margin-top: 12px; display: flex; gap: 8px;">
-        <button class="pwa-btn pwa-btn-primary" onclick="showPendingTeleModalById('${order.id}')" style="flex: 1; padding: 10px; background: var(--primary); color: white; border: none; border-radius: var(--radius); cursor: pointer; font-weight: 600;">
-          Visualizar & Aceitar
-        </button>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-}
-
-async function showPendingTeleModalById(teleId) {
-  if (!db) return;
-  try {
-    const { data, error } = await db
-      .from('pending_deliveries')
-      .select('*')
-      .eq('id', teleId)
-      .single();
-
-    if (error || !data) {
-      showPWAToast("Tele não está mais disponível.");
-      loadSystemTeles();
-      return;
-    }
-
-    showPendingTeleModal(data);
-  } catch (err) {
-    console.error("Error loading tele details:", err);
-  }
-}
-
-async function updateSystemTelesCount() {
-  if (!db) return;
-  try {
-    const { count, error } = await db
-      .from('pending_deliveries')
-      .select('*', { count: 'exact', head: true });
-    
-    if (!error) {
-      const badge = document.getElementById('map-system-teles-badge');
-      if (badge) {
-        if (count > 0) {
-          badge.innerText = count;
-          badge.classList.remove('hidden');
-        } else {
-          badge.classList.add('hidden');
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error updating system teles count:", err);
-  }
-}
-
 function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1552,4 +1924,113 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
             Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+}
+
+// ─── SUPPORT CHAT LOGIC ──────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function fetchMotoChatHistory() {
+  const container = document.getElementById('pwa-chat-messages');
+  if (!container) return;
+
+  container.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: center; height: 100%;">
+      <div style="width: 24px; height: 24px; border: 3px solid rgba(255,255,255,0.1); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+    </div>
+  `;
+
+  if (!db || !currentRider) {
+    container.innerHTML = `<p style="text-align: center; color: var(--muted); padding: 20px;">Nenhuma mensagem.</p>`;
+    return;
+  }
+
+  try {
+    const { data, error } = await db
+      .from('support_messages')
+      .select('*')
+      .eq('client_email', currentRider.id)
+      .order('id', { ascending: true });
+
+    if (error) throw error;
+
+    renderMotoMessages(data || []);
+  } catch (err) {
+    console.error("Error loading chat history:", err);
+    container.innerHTML = `<p style="text-align: center; color: var(--muted); padding: 20px;">Erro ao carregar mensagens.</p>`;
+  }
+}
+
+function renderMotoMessages(messages) {
+  const container = document.getElementById('pwa-chat-messages');
+  if (!container) return;
+
+  if (messages.length === 0) {
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--muted); gap: 12px; padding: 20px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round" style="color: var(--muted);"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <p style="font-size: 0.85rem; margin: 0;">Fale diretamente com o suporte.</p>
+        <p style="font-size: 0.78rem; margin: 0; color: var(--muted);">Escreva uma mensagem abaixo para iniciar a conversa.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = messages.map(msg => {
+    const isMe = msg.sender_role === 'rider';
+    const alignStyle = isMe ? 'align-self: flex-end; align-items: flex-end;' : 'align-self: flex-start; align-items: flex-start;';
+    const bubbleStyle = isMe 
+      ? 'background: linear-gradient(135deg, var(--primary), #c2410c); color: #ffffff; border-radius: 16px 16px 2px 16px; box-shadow: 0 4px 12px rgba(255, 183, 0, 0.25);'
+      : 'background: #272732; border: 1px solid var(--border); color: var(--text); border-radius: 16px 16px 16px 2px;';
+    const time = msg.created_at ? new Date(msg.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'Agora';
+
+    return `
+      <div style="display: flex; flex-direction: column; max-width: 80%; ${alignStyle}">
+        <span style="font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; font-weight: 500;">${msg.sender_name}</span>
+        <div style="padding: 10px 14px; font-size: 0.88rem; line-height: 1.45; word-break: break-word; ${bubbleStyle}">
+          ${escapeHtml(msg.message)}
+        </div>
+        <span style="font-size: 0.65rem; color: var(--muted); margin-top: 4px;">${time}</span>
+      </div>
+    `;
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendMotoChatMessage(event) {
+  if (event) event.preventDefault();
+
+  const input = document.getElementById('pwa-chat-input');
+  if (!input) return;
+
+  const val = input.value.trim();
+  if (!val) return;
+
+  if (!db || !currentRider) return;
+
+  input.value = ''; // clear input immediately
+
+  try {
+    const { error } = await db
+      .from('support_messages')
+      .insert([{
+        client_email: currentRider.id,
+        sender_role: 'rider',
+        sender_name: currentRider.name,
+        message: val
+      }]);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error("Error sending rider chat message:", err);
+    showPWAToast("Erro ao enviar mensagem.");
+  }
 }

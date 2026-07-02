@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-test('HTML tags keep attribute quotes balanced', async () => {
-  const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+const testFile = async (filename) => {
+  const html = await readFile(new URL(`../public/${filename}`, import.meta.url), 'utf8');
   const malformedTags = [];
 
   for (const match of html.matchAll(/<[^>]*>/g)) {
@@ -17,5 +17,16 @@ test('HTML tags keep attribute quotes balanced', async () => {
     }
   }
 
-  assert.deepEqual(malformedTags, []);
+  return malformedTags;
+};
+
+test('index.html tags keep attribute quotes balanced', async () => {
+  const malformed = await testFile('index.html');
+  assert.deepEqual(malformed, []);
 });
+
+test('motoboy.html tags keep attribute quotes balanced', async () => {
+  const malformed = await testFile('motoboy.html');
+  assert.deepEqual(malformed, []);
+});
+
