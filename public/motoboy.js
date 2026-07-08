@@ -1364,6 +1364,15 @@ function formatMoney(value) {
   return 'R$ ' + value.toFixed(2).replace('.', ',');
 }
 
+function parseLocalDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+  return new Date(dateStr);
+}
+
 function parseOrderDate(dateText) {
   const raw = String(dateText || '').trim();
   const now = new Date();
@@ -1424,6 +1433,11 @@ async function loadWeeklyBalance() {
 
   if (error || !data) return;
 
+  const { data: credits, error: creditsErr } = await db
+    .from('rider_credits')
+    .select('amount, target_date')
+    .eq('rider_id', currentRider.id);
+
   let totalWeekly = 0;
   data.forEach(order => {
     const orderDate = parseOrderDate(order.date);
@@ -1432,6 +1446,15 @@ async function loadWeeklyBalance() {
       totalWeekly += fixedPrice * 0.90;
     }
   });
+
+  if (!creditsErr && credits) {
+    credits.forEach(c => {
+      const creditDate = parseLocalDate(c.target_date);
+      if (creditDate && isDateInCurrentWeek(creditDate)) {
+        totalWeekly += parseFloat(c.amount) || 0;
+      }
+    });
+  }
 
   if (balanceEl) balanceEl.innerText = formatMoney(totalWeekly);
 }
@@ -1842,6 +1865,13 @@ async function loadWeeklyClosures() {
 
     if (consumablesErr) throw consumablesErr;
 
+    const { data: credits, error: creditsErr } = await db
+      .from('rider_credits')
+      .select('*')
+      .eq('rider_id', currentRider.id);
+
+    if (creditsErr) throw creditsErr;
+
     const weeks = {};
 
     function getMondayOfDate(date) {
@@ -1865,6 +1895,8 @@ async function loadWeeklyClosures() {
           deliveriesCount: 0,
           gross: 0,
           consumablesTotal: 0,
+          creditsTotal: 0,
+          creditsList: [],
           isPaid: true
         };
         weeks[key].sunday.setDate(mon.getDate() + 6);
@@ -1890,6 +1922,8 @@ async function loadWeeklyClosures() {
           deliveriesCount: 0,
           gross: 0,
           consumablesTotal: 0,
+          creditsTotal: 0,
+          creditsList: [],
           isPaid: true
         };
         weeks[key].sunday.setDate(mon.getDate() + 6);
@@ -1897,6 +1931,31 @@ async function loadWeeklyClosures() {
       }
 
       weeks[key].consumablesTotal += parseFloat(item.amount) || 0;
+    });
+
+    (credits || []).forEach(item => {
+      const itemDate = parseLocalDate(item.target_date);
+      const mon = getMondayOfDate(itemDate);
+      const key = mon.toISOString();
+
+      if (!weeks[key]) {
+        weeks[key] = {
+          monday: mon,
+          sunday: new Date(mon),
+          deliveriesCount: 0,
+          gross: 0,
+          consumablesTotal: 0,
+          creditsTotal: 0,
+          creditsList: [],
+          isPaid: true
+        };
+        weeks[key].sunday.setDate(mon.getDate() + 6);
+        weeks[key].sunday.setHours(23, 59, 59, 999);
+      }
+
+      weeks[key].creditsTotal = (weeks[key].creditsTotal || 0) + (parseFloat(item.amount) || 0);
+      if (!weeks[key].creditsList) weeks[key].creditsList = [];
+      weeks[key].creditsList.push(item);
     });
 
     renderWeeklyClosures(weeks);
@@ -1952,8 +2011,9 @@ function renderWeeklyClosures(weeks) {
     const week = weeks[key];
     const gross = week.gross;
     const discount = gross * 0.10;
-    const consumables = week.consumablesTotal;
-    const net = gross * 0.90 - consumables;
+    const consumables = week.consumablesTotal || 0;
+    const credits = week.creditsTotal || 0;
+    const net = gross * 0.90 - consumables + credits;
 
     const fmt = { day: '2-digit', month: '2-digit' };
     const dateRangeLabel = `${week.monday.toLocaleDateString('pt-BR', fmt)} a ${week.sunday.toLocaleDateString('pt-BR', fmt)}`;
@@ -1961,6 +2021,19 @@ function renderWeeklyClosures(weeks) {
     const statusBadge = week.isPaid 
       ? `<span class="pwa-tele-status status-success" style="font-weight: 700; text-transform: uppercase;">PAGO</span>`
       : `<span class="pwa-tele-status status-progress" style="font-weight: 700; text-transform: uppercase;">PENDENTE</span>`;
+
+    let creditsDetailHtml = '';
+    if (week.creditsList && week.creditsList.length > 0) {
+      creditsDetailHtml = week.creditsList.map(c => {
+        const itemDate = parseLocalDate(c.target_date);
+        const dateFmt = itemDate ? itemDate.toLocaleDateString('pt-BR') : '';
+        return `
+          <div style="display: flex; justify-content: space-between; font-size: 0.76rem; color: #10b981; padding-left: 12px; margin-top: 1px;">
+            <span>↳ + ${formatMoney(c.amount)} (${c.description} - ${dateFmt})</span>
+          </div>
+        `;
+      }).join('');
+    }
 
     const card = document.createElement('div');
     card.className = 'pwa-tele-card';
@@ -1979,6 +2052,11 @@ function renderWeeklyClosures(weeks) {
           <span style="color: var(--muted);">Consumíveis / Vales:</span>
           <strong style="color: var(--error);">- ${formatMoney(consumables)}</strong>
         </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+          <span style="color: var(--muted);">Créditos Adicionais:</span>
+          <strong style="color: #10b981;">+ ${formatMoney(credits)}</strong>
+        </div>
+        ${creditsDetailHtml}
         <hr style="border: 0; border-top: 1px solid var(--border); margin: 4px 0;">
         <div style="display: flex; justify-content: space-between; font-size: 0.95rem; font-weight: 700;">
           <span style="color: var(--text);">Saldo Líquido:</span>

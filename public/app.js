@@ -27,6 +27,7 @@ const mockData = {
   },
   pendingDeliveries: [],
   riderConsumables: [],
+  riderCredits: [],
   cities: []
 };
 
@@ -260,6 +261,27 @@ async function fetchRiderConsumables() {
     }));
   } catch (err) {
     console.error("Error fetching rider consumables from Supabase:", err);
+  }
+}
+
+async function fetchRiderCredits() {
+  if (!supabaseClient) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from('rider_credits')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    mockData.riderCredits = data.map(item => ({
+      id: item.id,
+      rider_id: escapeHtml(String(item.rider_id)),
+      amount: parseFloat(item.amount),
+      description: escapeHtml(item.description),
+      target_date: item.target_date,
+      created_at: item.created_at
+    }));
+  } catch (err) {
+    console.error("Error fetching rider credits from Supabase:", err);
   }
 }
 
@@ -692,6 +714,13 @@ async function switchDashboardTab(targetTab) {
     populateConsumableRiderSelect();
     populateConsumableRiderSearchDropdown();
     renderRiderConsumables();
+  } else if (targetTab === 'owner-credits') {
+    await fetchFleet();
+    await fetchRiderCredits();
+    initCreditDates();
+    populateCreditRiderSelect();
+    populateCreditRiderSearchDropdown();
+    renderRiderCredits();
   } else if (targetTab === 'owner-settings') {
     await fetchFleet();
     renderRiderSettings();
@@ -1182,7 +1211,7 @@ function renderRiderPayments() {
     if (searchVal && !rider.name.toLowerCase().includes(searchVal)) {
       return;
     }
-    totals.set(rider.name, { rider, count: 0, total: 0, payments: [], consumablesTotal: 0 });
+    totals.set(rider.name, { rider, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
   });
 
   // Filter and group clientHistory orders in the range
@@ -1208,7 +1237,7 @@ function renderRiderPayments() {
     .forEach(order => {
       if (!totals.has(order.rider)) {
         if (searchVal && !order.rider.toLowerCase().includes(searchVal)) return;
-        totals.set(order.rider, { rider: { name: order.rider, id: '—' }, count: 0, total: 0, payments: [], consumablesTotal: 0 });
+        totals.set(order.rider, { rider: { name: order.rider, id: '—' }, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
       }
       const item = totals.get(order.rider);
       item.count += 1;
@@ -1230,16 +1259,39 @@ function renderRiderPayments() {
     let item = totals.get(c.rider_name);
     if (!item) {
       if (searchVal && !c.rider_name.toLowerCase().includes(searchVal)) return;
-      totals.set(c.rider_name, { rider: { name: c.rider_name, id: c.rider_id }, count: 0, total: 0, payments: [], consumablesTotal: 0 });
+      totals.set(c.rider_name, { rider: { name: c.rider_name, id: c.rider_id }, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
       item = totals.get(c.rider_name);
     }
     item.consumablesTotal += c.amount;
   });
 
+  // Sum credits in the selected range for each rider
+  const filteredCredits = (mockData.riderCredits || []).filter(item => {
+    if (start || end) {
+      const itemDate = parseLocalDate(item.target_date);
+      if (start && itemDate < start) return false;
+      if (end && itemDate > end) return false;
+    }
+    return true;
+  });
+
+  filteredCredits.forEach(c => {
+    const rider = mockData.fleet.find(r => r.id === c.rider_id);
+    const riderName = rider ? rider.name : 'Motoboy Removido';
+    let item = totals.get(riderName);
+    if (!item) {
+      if (searchVal && !riderName.toLowerCase().includes(searchVal)) return;
+      totals.set(riderName, { rider: { name: riderName, id: c.rider_id }, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
+      item = totals.get(riderName);
+    }
+    item.creditsTotal += c.amount;
+  });
+
   const rows = Array.from(totals.values()).sort((a, b) => b.total - a.total);
   const grandTotalGross = rows.reduce((sum, row) => sum + row.total, 0);
   const grandTotalConsumables = rows.reduce((sum, row) => sum + (row.consumablesTotal || 0), 0);
-  const grandTotalNet = grandTotalGross * 0.90 - grandTotalConsumables; // Apply 10% discount and subtract consumables
+  const grandTotalCredits = rows.reduce((sum, row) => sum + (row.creditsTotal || 0), 0);
+  const grandTotalNet = grandTotalGross * 0.90 - grandTotalConsumables + grandTotalCredits; // Apply 10% discount, subtract consumables and add credits
   
   const totalEl = document.getElementById('rider-week-total');
   if (totalEl) totalEl.innerText = formatMoneyBR(grandTotalNet);
@@ -1248,7 +1300,8 @@ function renderRiderPayments() {
     const gross = row.total;
     const discount = gross * 0.10;
     const consumables = row.consumablesTotal || 0;
-    const net = gross * 0.90 - consumables;
+    const credits = row.creditsTotal || 0;
+    const net = gross * 0.90 - consumables + credits;
     const avg = row.count ? gross / row.count : 0;
 
     // A rider is considered Paid in this period if they have orders and all of them are marked 'Pago'
@@ -1274,6 +1327,7 @@ function renderRiderPayments() {
         <td>${formatMoneyBR(gross)}</td>
         <td class="text-danger">- ${formatMoneyBR(discount)}</td>
         <td class="text-danger">- ${formatMoneyBR(consumables)}</td>
+        <td style="color: #10b981;">+ ${formatMoneyBR(credits)}</td>
         <td><strong class="text-yellow">${formatMoneyBR(net)}</strong></td>
         <td>${formatMoneyBR(avg)}</td>
         <td>${selectHtml}</td>
@@ -6152,6 +6206,10 @@ document.addEventListener('click', (e) => {
   if (wrapperCons && !wrapperCons.contains(e.target)) {
     toggleConsumableRiderSearchDropdown(false);
   }
+  const wrapperCred = document.querySelector('.credit-rider-search-wrapper');
+  if (wrapperCred && !wrapperCred.contains(e.target)) {
+    toggleCreditRiderSearchDropdown(false);
+  }
 });
 
 
@@ -6634,6 +6692,277 @@ async function deleteRiderConsumable(id) {
   } catch (err) {
     console.error('Error deleting rider consumable:', err);
     alert('Erro ao excluir consumo: ' + err.message);
+  }
+}
+
+// ─── OWNER CREDITS MANAGEMENT ───────────────────────────────────────────────
+function initCreditDates() {
+  const startEl = document.getElementById('credit-start-date');
+  const endEl = document.getElementById('credit-end-date');
+  if (startEl && !startEl.value) {
+    const { monday } = getCurrentWeekBounds();
+    startEl.value = formatDateISO(monday);
+  }
+  if (endEl && !endEl.value) {
+    const { sunday } = getCurrentWeekBounds();
+    endEl.value = formatDateISO(sunday);
+  }
+  const inputDateEl = document.getElementById('credit-input-date');
+  if (inputDateEl && !inputDateEl.value) {
+    inputDateEl.value = formatDateISO(new Date());
+  }
+}
+
+function clearCreditFilters() {
+  const startEl = document.getElementById('credit-start-date');
+  const endEl = document.getElementById('credit-end-date');
+  const searchEl = document.getElementById('credit-search-input');
+  
+  if (startEl) {
+    const { monday } = getCurrentWeekBounds();
+    startEl.value = formatDateISO(monday);
+  }
+  if (endEl) {
+    const { sunday } = getCurrentWeekBounds();
+    endEl.value = formatDateISO(sunday);
+  }
+  if (searchEl) {
+    searchEl.value = '';
+  }
+  
+  renderRiderCredits();
+}
+
+function toggleCreditRiderSearchDropdown(show) {
+  const dropdown = document.getElementById('credit-rider-search-dropdown');
+  const icon = document.querySelector('.credit-rider-search-wrapper i[data-lucide="chevron-down"]');
+  if (!dropdown) return;
+  
+  if (show) {
+    dropdown.classList.remove('hidden');
+    if (icon) icon.style.transform = 'rotate(180deg)';
+  } else {
+    dropdown.classList.add('hidden');
+    if (icon) icon.style.transform = 'rotate(0deg)';
+  }
+}
+
+function populateCreditRiderSearchDropdown() {
+  const dropdown = document.getElementById('credit-rider-search-dropdown');
+  if (!dropdown) return;
+
+  const searchInput = document.getElementById('credit-search-input');
+  const filterText = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  let html = `
+    <div onclick="selectRiderForCreditSearch('')" style="padding: 10px 14px; cursor: pointer; transition: background 0.2s; font-size: 0.85rem; color: var(--color-text-muted);" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+      <em>Todos os entregadores</em>
+    </div>
+  `;
+
+  mockData.fleet
+    .filter(rider => !filterText || rider.name.toLowerCase().includes(filterText))
+    .forEach(rider => {
+      html += `
+        <div onclick="selectRiderForCreditSearch('${escapeHtml(rider.name)}')" style="padding: 10px 14px; cursor: pointer; transition: background 0.2s; font-size: 0.85rem; display: flex; align-items: center; gap: 8px;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+          <div style="width: 8px; height: 8px; border-radius: 50%; background: ${rider.status === 'Disponível' ? '#10b981' : '#f59e0b'};"></div>
+          <strong>${escapeHtml(rider.name)}</strong> <span style="color: var(--color-text-muted); font-size: 0.78rem;">(${escapeHtml(rider.id)})</span>
+        </div>
+      `;
+    });
+
+  dropdown.innerHTML = html;
+}
+
+function filterCreditRiderSearch() {
+  toggleCreditRiderSearchDropdown(true);
+  populateCreditRiderSearchDropdown();
+}
+
+function selectRiderForCreditSearch(name) {
+  const searchInput = document.getElementById('credit-search-input');
+  if (searchInput) {
+    searchInput.value = name;
+  }
+  toggleCreditRiderSearchDropdown(false);
+  renderRiderCredits();
+}
+
+function populateCreditRiderSelect() {
+  const select = document.getElementById('credit-rider-select');
+  if (!select) return;
+  
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">Selecione um motoboy...</option>';
+  
+  const sortedRiders = [...mockData.fleet].sort((a, b) => a.name.localeCompare(b.name));
+  
+  sortedRiders.forEach(rider => {
+    const option = document.createElement('option');
+    option.value = rider.id;
+    option.setAttribute('data-name', rider.name);
+    option.innerText = `${rider.name} (${rider.id})`;
+    if (rider.id === currentValue) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+}
+
+function renderRiderCredits() {
+  const tbody = document.getElementById('credits-table-body');
+  if (!tbody) return;
+
+  const startDateVal = document.getElementById('credit-start-date').value;
+  const endDateVal = document.getElementById('credit-end-date').value;
+  const searchVal = document.getElementById('credit-search-input').value.trim().toLowerCase();
+
+  let start = startDateVal ? parseLocalDate(startDateVal) : null;
+  let end = endDateVal ? parseLocalDate(endDateVal) : null;
+
+  if (start) start.setHours(0, 0, 0, 0);
+  if (end) end.setHours(23, 59, 59, 999);
+
+  let periodTotal = 0;
+
+  const filtered = (mockData.riderCredits || []).filter(item => {
+    if (start || end) {
+      const itemDate = parseLocalDate(item.target_date);
+      if (start && itemDate < start) return false;
+      if (end && itemDate > end) return false;
+    }
+    if (searchVal) {
+      const rider = mockData.fleet.find(r => r.id === item.rider_id);
+      const riderName = rider ? rider.name.toLowerCase() : '';
+      if (!riderName.includes(searchVal) && !item.rider_id.toLowerCase().includes(searchVal)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const listHtml = filtered.map(item => {
+    periodTotal += item.amount;
+    const rider = mockData.fleet.find(r => r.id === item.rider_id);
+    const riderName = rider ? rider.name : 'Motoboy Removido';
+
+    const targetDateFmt = parseLocalDate(item.target_date).toLocaleDateString('pt-BR');
+    const createdDate = new Date(item.created_at);
+    const createdDateFmt = createdDate.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    return `
+      <tr>
+        <td><strong>${targetDateFmt}</strong></td>
+        <td><strong>${escapeHtml(riderName)}</strong> <span class="text-muted" style="font-size: 0.78rem;">(${escapeHtml(item.rider_id)})</span></td>
+        <td><strong style="color: #10b981;">+ ${formatMoneyBR(item.amount)}</strong></td>
+        <td>${escapeHtml(item.description)}</td>
+        <td><span class="text-muted" style="font-size: 0.8rem;">${createdDateFmt}</span></td>
+        <td>
+          <button onclick="deleteRiderCredit('${item.id}')" class="btn-action btn-action-danger" title="Excluir Lançamento" style="background: transparent; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px;">
+            <i data-lucide="trash-2" style="width: 16px; height: 16px;"></i>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: var(--color-text-muted); padding: 24px;">
+          Nenhum lançamento de crédito encontrado para os filtros selecionados.
+        </td>
+      </tr>
+    `;
+  } else {
+    tbody.innerHTML = listHtml;
+  }
+
+  const periodTotalEl = document.getElementById('credits-period-total');
+  if (periodTotalEl) periodTotalEl.innerText = formatMoneyBR(periodTotal);
+
+  if (window.lucide) lucide.createIcons();
+}
+
+async function handleRegisterCredit(event) {
+  event.preventDefault();
+  if (!supabaseClient) return;
+
+  const selectRider = document.getElementById('credit-rider-select');
+  const inputAmount = document.getElementById('credit-input-amount');
+  const inputDate = document.getElementById('credit-input-date');
+  const textareaDesc = document.getElementById('credit-input-description');
+
+  if (!selectRider || !inputAmount || !inputDate || !textareaDesc) return;
+
+  const riderId = selectRider.value;
+  const amount = parseFloat(inputAmount.value) || 0;
+  const targetDate = inputDate.value;
+  const description = textareaDesc.value.trim();
+
+  if (!riderId || isNaN(amount) || amount <= 0 || !targetDate || !description) {
+    alert('Por favor, preencha todos os campos corretamente.');
+    return;
+  }
+
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const { error } = await supabaseClient
+      .from('rider_credits')
+      .insert([{
+        rider_id: riderId,
+        amount: amount,
+        target_date: targetDate,
+        description: description
+      }]);
+
+    if (error) throw error;
+
+    selectRider.value = '';
+    inputAmount.value = '';
+    textareaDesc.value = '';
+    
+    showToastNotification('Crédito lançado com sucesso.');
+    
+    await fetchRiderCredits();
+    renderRiderCredits();
+    renderRiderPayments();
+    
+  } catch (err) {
+    console.error('Error inserting rider credit:', err);
+    alert('Erro ao registrar crédito: ' + err.message);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function deleteRiderCredit(id) {
+  if (!supabaseClient) return;
+  if (!confirm('Deseja realmente remover este lançamento de crédito?')) return;
+
+  try {
+    const { error } = await supabaseClient
+      .from('rider_credits')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+
+    showToastNotification('Crédito excluído com sucesso.');
+    
+    await fetchRiderCredits();
+    renderRiderCredits();
+    renderRiderPayments();
+  } catch (err) {
+    console.error('Error deleting rider credit:', err);
+    alert('Erro ao excluir crédito: ' + err.message);
   }
 }
 
