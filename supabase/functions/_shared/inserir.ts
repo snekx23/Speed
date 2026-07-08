@@ -59,29 +59,63 @@ export async function inserirTele(tele: TeleNormalizada) {
   const precoTxt = tele.valor != null ? `R$ ${Number(tele.valor).toFixed(2).replace('.', ',')}` : ''
   const origemTxt = ORIGEM_LABEL[tele.origem] ?? tele.origem
 
-  const { error } = await sb.from('pending_deliveries').upsert(
-    {
-      id: tele.external_id,
-      client: loja?.nome ?? 'Loja',
-      dest_name: tele.cliente_nome,
-      address: tele.endereco,
-      dist: '',
-      price: precoTxt,
-      payment: `Pago (${origemTxt})`,
-      cargo: itensTxt || 'Pedido',
-      pickup_lat: loja?.pickup_lat ?? null,
-      pickup_lng: loja?.pickup_lng ?? null,
-      dest_lat: tele.lat ?? null,
-      dest_lng: tele.lng ?? null,
-      bidding_started_at: new Date().toISOString(),
-    },
+  const shortId = tele.codigo ? tele.codigo.replace('#', '') : tele.external_id.slice(-4)
+  const dbId = tele.origem === '99food' ? `99Food #${shortId} (${tele.external_id})` : tele.external_id
+
+  const payload: any = {
+    id: dbId,
+    client: loja?.nome ?? 'Loja',
+    dest_name: tele.cliente_nome,
+    address: tele.endereco,
+    dist: '',
+    price: precoTxt,
+    payment: `Pago (${origemTxt})`,
+    cargo: itensTxt || 'Pedido',
+    pickup_lat: loja?.pickup_lat ?? null,
+    pickup_lng: loja?.pickup_lng ?? null,
+    dest_lat: tele.lat ?? null,
+    dest_lng: tele.lng ?? null,
+    bidding_started_at: new Date().toISOString(),
+  }
+
+  if (tele.total_order_amount != null) {
+    payload.total_order_amount = `R$ ${Number(tele.total_order_amount).toFixed(2).replace('.', ',')}`
+  }
+
+  if (tele.confirmation_code) {
+    payload.confirmation_code = tele.confirmation_code
+  }
+
+  let { error } = await sb.from('pending_deliveries').upsert(
+    payload,
     { onConflict: 'id', ignoreDuplicates: true },
   )
+
+  if (error && error.code === '42703') {
+    delete payload.total_order_amount
+    delete payload.confirmation_code
+    const { error: retryError } = await sb.from('pending_deliveries').upsert(
+      payload,
+      { onConflict: 'id', ignoreDuplicates: true },
+    )
+    error = retryError
+  }
+
   if (error) throw error
 }
 
 /** No garra não há status na pending_deliveries: ao cancelar, removemos do pool. */
-export async function atualizarStatusTele(_origem: string, externalId: string, status: string) {
+export async function atualizarStatusTele(origem: string, externalId: string, status: string) {
   if (status !== 'cancelado') return
-  await admin().from('pending_deliveries').delete().eq('id', externalId)
+  if (origem === '99food') {
+    await admin()
+      .from('pending_deliveries')
+      .delete()
+      .or(`id.eq.${externalId},id.like.99Food %(${externalId})`)
+  } else {
+    await admin()
+      .from('pending_deliveries')
+      .delete()
+      .eq('id', externalId)
+  }
 }

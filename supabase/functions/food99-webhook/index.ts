@@ -13,11 +13,28 @@
 import { createHash } from 'node:crypto'
 import { normalizar99food, tipo99food } from '../_shared/normalizar.ts'
 import { inserirTele, atualizarStatusTele, logWebhook } from '../_shared/inserir.ts'
+import { acaoPedido99 } from '../_shared/food99api.ts'
 
-const ok = () => Response.json({ errno: 0, errmsg: 'ok' })
-const erro = (msg: string, status = 200) => Response.json({ errno: 1, errmsg: msg }, { status })
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-request-id',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
+
+const ok = () => new Response(JSON.stringify({ errno: 0, errmsg: 'ok' }), {
+  status: 200,
+  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+})
+
+const erro = (msg: string, status = 200) => new Response(JSON.stringify({ errno: 1, errmsg: msg }), {
+  status,
+  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+})
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
   if (req.method === 'GET' || req.method === 'HEAD') return ok()
   if (req.method !== 'POST') return ok()
 
@@ -42,7 +59,13 @@ Deno.serve(async (req) => {
 
   if (!assinaturaOk && !tokenOk) return erro('assinatura inválida', 401)
 
-  await logWebhook('99food', { type: body?.type }, { 'didi-sign-ok': String(assinaturaOk) })
+  const requestHeaders: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    requestHeaders[key] = value
+  })
+  requestHeaders['didi-sign-ok'] = String(assinaturaOk)
+
+  await logWebhook('99food', body, requestHeaders, raw)
 
   try {
     // order_id de 64 bits: pega exato do corpo bruto (primeira ocorrência = data.order_id).
@@ -55,6 +78,16 @@ Deno.serve(async (req) => {
       const tele = normalizar99food(body)
       tele.external_id = orderId // garante precisão
       await inserirTele(tele)
+
+      // Fluxo de confirmação automática obrigatório para 99Food
+      const shop = tele.food99_app_shop_id || Deno.env.get('FOOD99_APP_SHOP_ID') || 'garra-bora-01'
+      try {
+        console.log(`Automatic confirmation: confirming order ${orderId} for shop ${shop}...`)
+        const confirmRes = await acaoPedido99(shop, 'confirmar', orderId)
+        console.log(`Automatic confirmation response:`, confirmRes)
+      } catch (confirmErr) {
+        console.error(`Automatic confirmation failed for order ${orderId}:`, confirmErr)
+      }
     } else if (tipo === 'finalizado') {
       await atualizarStatusTele('99food', orderId, 'entregue')
     } else if (tipo === 'cancelado') {

@@ -1,6 +1,6 @@
 // Garra Delivery - Core Application Logic
 
-mapboxgl.accessToken = ['pk', 'eyJ1Ijoic25la3giLCJhIjoiY21xc3g5eXEzMGQweTJzb2xoemg1YzQwZCJ9', 'SyNFqkGgDnkuvY2wRpFDhg'].join('.');
+mapboxgl.accessToken = window.MAPBOX_ACCESS_TOKEN || ['pk', 'eyJ1Ijoic25la3giLCJhIjoiY21xc3g5eXEzMGQweTJzb2xoemg1YzQwZCJ9', 'SyNFqkGgDnkuvY2wRpFDhg'].join('.');
 
 // Supabase Configuration
 const supabaseUrl = window.SUPABASE_CONFIG ? window.SUPABASE_CONFIG.url : 'https://faowxiyxjfogkoynsohj.supabase.co';
@@ -31,6 +31,8 @@ const mockData = {
 };
 
 let commercesList = [];
+let currentTeleFilter = 'all';
+let teleViewMode = 'list';
 
 async function fetchCommerces() {
   if (!supabaseClient) {
@@ -92,6 +94,7 @@ function escapeHtml(value) {
 
 // Global Chart and Map variables to allow proper reset/destroy
 let ownerFleetMap = null;
+let ownerFleetInfoWindow = null;
 let ownerOverviewChart = null;
 let ownerFinancialChart = null;
 let clientOverviewChart = null;
@@ -131,7 +134,8 @@ async function fetchFleet() {
       plate: item.plate,
       status: item.status,
       delivery: item.delivery,
-      battery: item.battery,
+      battery: item.battery_level != null ? `${item.battery_level}%` : (item.battery || '100%'),
+      battery_level: item.battery_level != null ? item.battery_level : (parseInt(item.battery) || 100),
       rating: parseFloat(item.rating),
       statusClass: item.status_class,
       pin: item.pin || '—',
@@ -163,6 +167,19 @@ async function getNextRiderID() {
   return '#MB-' + String(maxNum + 1).padStart(4, '0');
 }
 
+function getFixedPriceByAddress(address) {
+  const addr = (address || '').toLowerCase();
+  if (addr.includes('esteio')) {
+    return 10.00;
+  }
+  return 8.00;
+}
+
+function getFixedPriceFormatted(address) {
+  const price = getFixedPriceByAddress(address);
+  return `R$ ${price.toFixed(2).replace('.', ',')}`;
+}
+
 async function fetchClientHistory() {
   await fetchCommerces();
   if (!supabaseClient) return;
@@ -179,12 +196,13 @@ async function fetchClientHistory() {
       address: escapeHtml(item.address),
       rider: escapeHtml(item.rider),
       dist: escapeHtml(item.dist),
-      price: escapeHtml(item.price),
+      price: getFixedPriceFormatted(item.address),
       date: escapeHtml(item.date),
       status: escapeHtml(item.status),
       statusClass: escapeHtml(item.status_class),
       payment_status: escapeHtml(item.payment_status || 'Pendente'),
-      created_at: item.created_at
+      created_at: item.created_at,
+      total_order_amount: item.total_order_amount || null
     }));
   } catch (err) {
     console.error("Error fetching client history from Supabase:", err);
@@ -205,13 +223,15 @@ async function fetchPendingDeliveries() {
       destName: escapeHtml(item.dest_name),
       address: escapeHtml(item.address),
       dist: escapeHtml(item.dist),
-      price: escapeHtml(item.price),
+      price: getFixedPriceFormatted(item.address),
       payment: escapeHtml(item.payment),
       cargo: escapeHtml(item.cargo),
       pickup_lat: item.pickup_lat,
       pickup_lng: item.pickup_lng,
       dest_lat: item.dest_lat,
-      dest_lng: item.dest_lng
+      dest_lng: item.dest_lng,
+      created_at: item.created_at,
+      total_order_amount: item.total_order_amount || null
     }));
   } catch (err) {
     console.error("Error fetching pending deliveries from Supabase:", err);
@@ -515,6 +535,9 @@ async function loginSuccess() {
     
     // Render Fleet table
     renderFleetTable();
+
+    // Verify 99Food integration connection status
+    verificarIntegracao99Food();
   } else if (profile.startsWith('client') || profile.startsWith('order')) {
     document.getElementById('display-role').innerText = 'Painel Cliente';
     document.getElementById('nav-client-group').classList.remove('hidden');
@@ -555,6 +578,10 @@ function handleLogout() {
   localStorage.removeItem('loggedInProfile');
   localStorage.removeItem('activeDashboardTab');
 
+  // Hide global FAB button
+  const ownerFab = document.getElementById('owner-fab-btn');
+  if (ownerFab) ownerFab.classList.add('hidden');
+
   // Remove active chat subscription if any
   if (supabaseClient && supportChatChannel) {
     supabaseClient.removeChannel(supportChatChannel);
@@ -567,14 +594,26 @@ function handleLogout() {
   activeChatClientEmail = null;
   activeChatClientName = null;
 
-  // Reset delivery request map
-  if (requestDeliveryMap) {
-    requestDeliveryMap.remove();
-    requestDeliveryMap = null;
+  // Reset delivery request maps
+  for (const type of ['client', 'manual']) {
+    if (requestMaps[type].map) {
+      const container = document.getElementById(`${type}-request-delivery-map`);
+      if (container) container.innerHTML = '';
+      requestMaps[type].map = null;
+    }
+    requestMaps[type].marker = null;
+    requestMaps[type].restaurantMarker = null;
+    requestMaps[type].destCoords = null;
   }
-  requestDeliveryMarker = null;
-  restaurantMarker = null;
-  requestDeliveryRouteLine = null;
+
+  // Reset owner fleet map
+  if (ownerFleetMap) {
+    const container = document.getElementById('owner-fleet-map');
+    if (container) container.innerHTML = '';
+    ownerFleetMap = null;
+    ownerCentralMarker = null;
+    ownerFleetMarkers = {};
+  }
 
   setTimeout(() => {
     loader.classList.add('hidden');
@@ -609,6 +648,15 @@ async function switchDashboardTab(targetTab) {
   const activeTabEl = document.getElementById(`tab-${targetTab}`);
   if (activeTabEl) {
     activeTabEl.classList.add('active');
+  }
+
+  const ownerFab = document.getElementById('owner-fab-btn');
+  if (ownerFab) {
+    if (targetTab === 'owner-teles' && mockData.activeProfile === 'owner') {
+      ownerFab.classList.remove('hidden');
+    } else {
+      ownerFab.classList.add('hidden');
+    }
   }
 
   // Trigger specific tab initializers (like charts render)
@@ -650,6 +698,7 @@ async function switchDashboardTab(targetTab) {
     renderRiderLimits();
   } else if (targetTab === 'owner-integracoes') {
     if (window.lucide) lucide.createIcons();
+    verificarIntegracao99Food();
   } else if (targetTab === 'client-overview') {
     const clientInfoPanels = document.getElementById('client-info-panels');
     if (clientInfoPanels) {
@@ -700,6 +749,10 @@ async function switchDashboardTab(targetTab) {
     if (window.lucide) lucide.createIcons();
   } else if (targetTab === 'download-app') {
     if (window.lucide) lucide.createIcons();
+  } else if (targetTab === 'order-request') {
+    setTimeout(() => {
+      initRequestDeliveryMap('client');
+    }, 200);
   }
 }
 
@@ -807,6 +860,57 @@ async function configurar99food() {
   }
 }
 
+async function verificarIntegracao99Food() {
+  try {
+    // Attempt 1: Query food99_tokens
+    const { data: tokenData, error: tokenError } = await supabaseClient
+      .from('food99_tokens')
+      .select('app_shop_id')
+      .limit(1);
+
+    const statusBadge = document.getElementById('status-99food');
+    const msg = document.getElementById('99food-setup-msg');
+
+    let isConnected = false;
+
+    if (!tokenError && tokenData && tokenData.length > 0) {
+      isConnected = true;
+    } else {
+      // Fallback: Check if there is a store marked 'conectada' in the lojas table
+      const { data: lojasData, error: lojasError } = await supabaseClient
+        .from('lojas')
+        .select('food99_app_shop_id')
+        .eq('status', 'conectada')
+        .not('food99_app_shop_id', 'is', null)
+        .limit(1);
+        
+      if (!lojasError && lojasData && lojasData.length > 0) {
+        isConnected = true;
+      }
+    }
+
+    if (isConnected) {
+      if (statusBadge) {
+        statusBadge.innerText = 'Conectada';
+        statusBadge.style.background = 'rgba(16, 185, 129, 0.12)';
+        statusBadge.style.color = '#10b981';
+      }
+      if (msg) {
+        msg.classList.remove('hidden');
+        msg.innerText = 'Pronto! Integração com 99Food ativa no servidor remoto.';
+      }
+    } else {
+      if (statusBadge) {
+        statusBadge.innerText = 'Ação necessária';
+        statusBadge.style.background = 'rgba(245, 158, 11, 0.12)';
+        statusBadge.style.color = '#f59e0b';
+      }
+    }
+  } catch (err) {
+    console.error("Erro ao verificar integração do 99Food:", err);
+  }
+}
+
 async function loadTelesManagement() {
   setTelesLoadingState();
 
@@ -822,51 +926,67 @@ async function loadTelesManagement() {
     return;
   }
 
-  renderPendingDeliveries();
-  renderActiveDeliveries();
+  renderTelesUnified();
 }
 
 function setTelesLoadingState() {
-  const pendingContainer = document.getElementById('pending-deliveries-container');
-  const activeContainer = document.getElementById('active-deliveries-container');
-  const pendingBadge = document.getElementById('pending-count-badge');
-  const activeBadge = document.getElementById('active-count-badge');
-
-  if (pendingBadge) pendingBadge.innerText = 'carregando...';
-  if (activeBadge) activeBadge.innerText = 'carregando...';
-
+  const container = document.getElementById('teles-content-container');
   const loadingCard = `
-    <div class="tele-state-card">
-      <div class="tele-state-spinner"></div>
+    <div class="tele-state-card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; color: var(--color-text-muted);">
+      <div class="tele-state-spinner" style="border: 3px solid rgba(255,255,255,0.05); border-top: 3px solid var(--primary); border-radius: 50%; width: 36px; height: 36px; animation: spin 1s linear infinite; margin-bottom: 12px;"></div>
       <p>Carregando teles...</p>
     </div>
   `;
-
-  if (pendingContainer) pendingContainer.innerHTML = loadingCard;
-  if (activeContainer) activeContainer.innerHTML = loadingCard;
+  if (container) container.innerHTML = loadingCard;
 }
 
 function showTelesLoadError() {
-  const pendingContainer = document.getElementById('pending-deliveries-container');
-  const activeContainer = document.getElementById('active-deliveries-container');
-  const pendingBadge = document.getElementById('pending-count-badge');
-  const activeBadge = document.getElementById('active-count-badge');
-
-  if (pendingBadge) pendingBadge.innerText = 'erro';
-  if (activeBadge) activeBadge.innerText = 'erro';
-
+  const container = document.getElementById('teles-content-container');
   const errorCard = `
-    <div class="tele-state-card tele-state-error">
-      <i data-lucide="alert-triangle"></i>
-      <p>Não foi possível carregar as teles.</p>
-      <button class="btn btn-secondary btn-sm" onclick="loadTelesManagement()">Tentar novamente</button>
+    <div class="tele-state-card tele-state-error" style="text-align: center; padding: 40px; color: #ef4444;">
+      <i data-lucide="alert-triangle" style="width: 48px; height: 48px; margin-bottom: 12px; display: inline-block;"></i>
+      <p style="font-weight: 600;">Não foi possível carregar as teles.</p>
+      <button class="btn btn-secondary btn-sm" onclick="loadTelesManagement()" style="margin-top: 12px;">Tentar novamente</button>
     </div>
   `;
-
-  if (pendingContainer) pendingContainer.innerHTML = errorCard;
-  if (activeContainer) activeContainer.innerHTML = errorCard;
+  if (container) container.innerHTML = errorCard;
   lucide.createIcons();
 }
+
+// Global Filter Setter
+window.setTeleFilter = function(filter) {
+  currentTeleFilter = filter;
+  
+  // Highlight active pill
+  const pills = document.querySelectorAll('.filter-pill');
+  pills.forEach(pill => {
+    pill.classList.remove('active');
+  });
+  
+  const activePill = document.getElementById(`filter-${filter}`);
+  if (activePill) activePill.classList.add('active');
+  
+  renderTelesUnified();
+};
+
+// Global View Mode Setter
+window.setTeleViewMode = function(mode) {
+  teleViewMode = mode;
+  
+  // Highlight active toggle button
+  const gridBtn = document.getElementById('view-toggle-grid');
+  const listBtn = document.getElementById('view-toggle-list');
+  
+  if (mode === 'grid') {
+    if (gridBtn) gridBtn.classList.add('active');
+    if (listBtn) listBtn.classList.remove('active');
+  } else {
+    if (gridBtn) gridBtn.classList.remove('active');
+    if (listBtn) listBtn.classList.add('active');
+  }
+  
+  renderTelesUnified();
+};
 
 // Render the owner fleet table with mock data
 function renderFleetTable() {
@@ -896,9 +1016,13 @@ function renderFleetTable() {
       <td><strong>${escapeHtml(rider.delivery)}</strong></td>
       <td>
         <div class="perf-bar-group" style="width: 100px;">
-          <div class="perf-bar-label"><span class="text-xs">${escapeHtml(rider.battery)}</span></div>
+          <div class="perf-bar-label">
+            <span class="text-xs" style="${rider.battery_level < 20 ? 'color: #ef4444; font-weight: bold;' : ''}">
+              ${escapeHtml(rider.battery)}
+            </span>
+          </div>
           <div class="perf-bar">
-            <div class="perf-bar-fill ${parseInt(rider.battery) > 50 ? 'bg-green' : (parseInt(rider.battery) > 25 ? 'bg-yellow' : 'bg-blue')}" style="width: ${parseInt(rider.battery)}%"></div>
+            <div class="perf-bar-fill ${rider.battery_level < 20 ? '' : (rider.battery_level > 50 ? 'bg-green' : (rider.battery_level > 25 ? 'bg-yellow' : 'bg-blue'))}" style="width: ${rider.battery_level}%; ${rider.battery_level < 20 ? 'background-color: #ef4444;' : ''}"></div>
           </div>
         </div>
       </td>
@@ -949,7 +1073,62 @@ function getCurrentWeekBounds() {
   return { monday, sunday };
 }
 
-function parseOrderDate(dateText) {
+function formatOrderIdForDisplay(id, payment, client) {
+  const is99 = (payment || '').toLowerCase().includes('99food') || (client || '').toLowerCase().includes('99food') || (id || '').toLowerCase().includes('99food');
+  
+  if (is99) {
+    const match = String(id || '').match(/99Food\s*#\d+/i);
+    if (match) {
+      return match[0];
+    }
+    const last4 = String(id || '').replace(/[^\d]/g, '').slice(-4);
+    return `99Food #${last4}`;
+  }
+  
+  return id || '';
+}
+
+function formatOrderDate(dateText, createdAt) {
+  if (!createdAt) return dateText || '';
+  const d = new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return dateText || '';
+
+  const now = new Date();
+  
+  // Set times to 00:00:00 to compare calendar days accurately
+  const dDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  const diffTime = nowDate.getTime() - dDate.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  if (diffDays === 0) {
+    return `Hoje, ${timeStr}`;
+  } else if (diffDays === 1) {
+    return `Ontem, ${timeStr}`;
+  } else {
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month}, ${timeStr}`;
+  }
+}
+
+function parseLocalDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+  return new Date(dateStr);
+}
+
+function parseOrderDate(dateText, createdAt) {
+  if (createdAt) {
+    const d = new Date(createdAt);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
   const raw = String(dateText || '').trim();
   const now = new Date();
   if (!raw || raw.startsWith('Hoje')) return now;
@@ -968,7 +1147,7 @@ function parseOrderDate(dateText) {
 
 function isOrderInCurrentWeek(order) {
   const { monday, sunday } = getCurrentWeekBounds();
-  const orderDate = parseOrderDate(order.date);
+  const orderDate = parseOrderDate(order.date, order.created_at);
   return orderDate >= monday && orderDate <= sunday;
 }
 
@@ -980,8 +1159,8 @@ function renderRiderPayments() {
   const endDateVal = document.getElementById('rider-payment-end-date').value;
   const searchVal = document.getElementById('rider-search-input').value.trim().toLowerCase();
 
-  let start = startDateVal ? new Date(startDateVal) : null;
-  let end = endDateVal ? new Date(endDateVal) : null;
+  let start = startDateVal ? parseLocalDate(startDateVal) : null;
+  let end = endDateVal ? parseLocalDate(endDateVal) : null;
 
   if (start) start.setHours(0, 0, 0, 0);
   if (end) end.setHours(23, 59, 59, 999);
@@ -1014,7 +1193,7 @@ function renderRiderPayments() {
 
       // Filter by date
       if (start || end) {
-        const orderDate = parseOrderDate(order.date);
+        const orderDate = parseOrderDate(order.date, order.created_at);
         if (start && orderDate < start) return false;
         if (end && orderDate > end) return false;
       }
@@ -1462,9 +1641,9 @@ function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 // Calculate delivery price and distance on form inputs
-function calculateEstimate() {
-  const addressInput = document.getElementById('delivery-address').value;
-  const estimateBox = document.getElementById('estimate-box');
+function calculateEstimate(type = 'client') {
+  const addressInput = document.getElementById(`${type}-delivery-address`).value;
+  const estimateBox = document.getElementById(`${type}-estimate-box`);
 
   if (addressInput.length < 5) {
     estimateBox.classList.add('hidden');
@@ -1472,9 +1651,15 @@ function calculateEstimate() {
   }
 
   let distance = 0;
-  if (window.manualDestCoords) {
-    const startCoords = restaurantMarker ? restaurantMarker.getLngLat() : { lat: requestDeliveryCenterCoords[0], lng: requestDeliveryCenterCoords[1] };
-    const straightDistance = calculateHaversineDistance(startCoords.lat, startCoords.lng, window.manualDestCoords.lat, window.manualDestCoords.lng);
+  if (requestMaps[type].destCoords) {
+    let startLat = requestMaps[type].centerCoords[0];
+    let startLng = requestMaps[type].centerCoords[1];
+    if (requestMaps[type].restaurantMarker) {
+      const pos = requestMaps[type].restaurantMarker.getPosition();
+      startLat = pos.lat();
+      startLng = pos.lng();
+    }
+    const straightDistance = calculateHaversineDistance(startLat, startLng, requestMaps[type].destCoords.lat, requestMaps[type].destCoords.lng);
     distance = parseFloat((straightDistance * 1.3).toFixed(1)); // 1.3 multiplier to estimate real route distance
   } else {
     // Seed standard generator based on address string length to keep values consistent while typing
@@ -1484,76 +1669,90 @@ function calculateEstimate() {
 
   const minutes = Math.round(distance * 3.5 + 4); // mock speed minutes
   
-  // Calculate price: Base R$ 7.90 + R$ 1.50 per km (rounded to 5 cents)
-  let price = 7.90;
-  if (distance > 2.0) {
-    price += (distance - 2.0) * 1.50;
-  }
-
-  // Override with city rate if matched in address
+  // Pricing logic: Strict city-based pricing
+  let price = 15.00;
+  let priceText = 'R$ 15,00 (Fora da área de entrega)';
+  
   const lowercaseAddress = addressInput.toLowerCase();
   const sortedCities = [...(mockData.cities || [])].sort((a, b) => b.nome.length - a.nome.length);
   const matchedCity = sortedCities.find(city => lowercaseAddress.includes(city.nome.toLowerCase()));
+  
   if (matchedCity) {
     price = matchedCity.taxa;
+    priceText = 'R$ ' + price.toFixed(2).replace('.', ',');
   }
   
   // Store values temporarily for form submission
   window.lastEstimate = {
     distance: distance + ' km',
     time: minutes + ' min',
-    price: 'R$ ' + price.toFixed(2).replace('.', ',')
+    price: priceText
   };
 
   // Update UI values
-  document.getElementById('est-distance').innerText = window.lastEstimate.distance;
-  document.getElementById('est-time').innerText = window.lastEstimate.time;
-  document.getElementById('est-price').innerText = window.lastEstimate.price;
+  document.getElementById(`${type}-est-distance`).innerText = window.lastEstimate.distance;
+  document.getElementById(`${type}-est-time`).innerText = window.lastEstimate.time;
+  document.getElementById(`${type}-est-price`).innerText = window.lastEstimate.price;
 
   estimateBox.classList.remove('hidden');
 }
 
 // Submit delivery request and trigger live tracking simulation
-async function submitDeliveryRequest(event) {
+async function submitDeliveryRequest(event, type = 'client') {
   event.preventDefault();
 
-  const destAddress = document.getElementById('delivery-address').value;
-  const cargoType = document.getElementById('cargo-type').value;
-  const payMethod = document.getElementById('payment-method').value;
-  const notes = document.getElementById('order-notes').value;
-  const clientName = document.getElementById('delivery-client')?.value || 'Parceiro Garra';
-  const destName = document.getElementById('delivery-dest-name')?.value || 'Cliente informado';
+  const destAddress = document.getElementById(`${type}-delivery-address`).value;
+  const cargoType = document.getElementById(`${type}-cargo-type`).value;
+  const payMethod = document.getElementById(`${type}-payment-method`).value;
+  const notes = document.getElementById(`${type}-order-notes`).value;
+  const clientName = document.getElementById(`${type}-delivery-client`)?.value || 'Parceiro Garra';
+  const destName = document.getElementById(`${type}-delivery-dest-name`)?.value || 'Cliente informado';
 
   if (!window.lastEstimate) return;
 
-  // Generate sequential TELE ID
-  const randomId = await getNextTeleId();
+  // Get Tele ID (use input override if manual, otherwise auto-generate)
+  let randomId;
+  if (type === 'manual') {
+    randomId = document.getElementById('manual-delivery-id').value.trim();
+    if (!randomId) {
+      randomId = await getNextTeleId();
+    }
+  } else {
+    randomId = await getNextTeleId();
+  }
   
   // Format payment name
-  const paymentStr = payMethod === 'pix' ? 'PIX (Pago pelo App)' : (payMethod === 'cartao-maquininha' ? 'Levar Maquininha' : 'Dinheiro (Troco para R$ ' + document.getElementById('change-amount').value + ')');
+  const changeEl = document.getElementById(`${type}-change-amount`);
+  const changeVal = changeEl ? changeEl.value : '50';
+  const paymentStr = payMethod === 'pix' ? 'PIX (Pago pelo App)' : (payMethod === 'cartao-maquininha' ? 'Levar Maquininha' : 'Dinheiro (Troco para R$ ' + changeVal + ')');
   // Format cargo name
   const cargoStr = cargoType === 'lanche' ? '🍔 Lanches e Bebidas' : (cargoType === 'pizza' ? '🍕 Pizza Família' : (cargoType === 'doce' ? '🍩 Doces e Sobremesas' : '📄 Papelada / Documentos'));
 
   let pickupLat = -29.8378;
   let pickupLng = -51.1444;
-  if (restaurantMarker) {
-    const latlng = restaurantMarker.getLngLat();
-    pickupLat = latlng.lat;
-    pickupLng = latlng.lng;
-  } else if (Array.isArray(requestDeliveryCenterCoords)) {
-    pickupLat = requestDeliveryCenterCoords[0];
-    pickupLng = requestDeliveryCenterCoords[1];
+  if (requestMaps[type].restaurantMarker) {
+    const pos = requestMaps[type].restaurantMarker.getPosition();
+    pickupLat = pos.lat();
+    pickupLng = pos.lng();
+  } else if (Array.isArray(requestMaps[type].centerCoords)) {
+    pickupLat = requestMaps[type].centerCoords[0];
+    pickupLng = requestMaps[type].centerCoords[1];
   }
 
   let destLat = null;
   let destLng = null;
-  if (requestDeliveryMarker) {
-    const destLatLng = requestDeliveryMarker.getLngLat();
-    destLat = destLatLng.lat;
-    destLng = destLatLng.lng;
-  } else if (window.manualDestCoords) {
-    destLat = window.manualDestCoords.lat;
-    destLng = window.manualDestCoords.lng;
+  if (requestMaps[type].marker) {
+    const pos = requestMaps[type].marker.getPosition();
+    destLat = pos.lat();
+    destLng = pos.lng();
+  } else if (requestMaps[type].destCoords) {
+    destLat = requestMaps[type].destCoords.lat;
+    destLng = requestMaps[type].destCoords.lng;
+  }
+
+  if (!destLat || !destLng) {
+    alert("Erro: Não foi possível obter a geolocalização para este endereço. Certifique-se de digitar ou colar um endereço com número residencial válido no Rio Grande do Sul.");
+    return;
   }
 
   // Create delivery payload for Supabase
@@ -1635,16 +1834,18 @@ async function submitDeliveryRequest(event) {
   const requestForm = document.getElementById('order-request-form') || document.getElementById('request-delivery-form');
   if (requestForm) requestForm.reset();
   
-  document.getElementById('estimate-box').classList.add('hidden');
+  document.getElementById(`${type}-estimate-box`).classList.add('hidden');
   window.lastEstimate = null;
-  window.manualDestCoords = null;
 
   // Reset request map markers
-    if (requestDeliveryMarker) {
-      requestDeliveryMarker.remove();
-      requestDeliveryMarker = null;
-    }
-    safeRemoveRouteLayer(requestDeliveryMap, 'route', 'route');
+  if (requestMaps[type].marker) {
+    requestMaps[type].marker.setMap(null);
+    requestMaps[type].marker = null;
+  }
+  if (requestMaps[type].polyline) {
+    requestMaps[type].polyline.setMap(null);
+    requestMaps[type].polyline = null;
+  }
 
   // Close request delivery modal if active
   closeRequestDeliveryModal();
@@ -1935,50 +2136,59 @@ function initOwnerFleetMap() {
   const mapContainer = document.getElementById('owner-fleet-map');
   if (!mapContainer) return;
 
-  // If map is already initialized, resize it
   if (ownerFleetMap) {
-    setTimeout(() => {
-      ownerFleetMap.resize();
-    }, 100);
+    if (window.google && google.maps) {
+      google.maps.event.trigger(ownerFleetMap, 'resize');
+    }
     return;
   }
 
-  // Create map instance
-  ownerFleetMap = new mapboxgl.Map({
-    container: 'owner-fleet-map',
-    style: 'mapbox://styles/mapbox/dark-v11',
-    center: [ownerFleetCenterCoords[1], ownerFleetCenterCoords[0]], // [lng, lat]
-    zoom: 14
+  loadGoogleMapsAPI(() => {
+    const darkMapStyle = [
+      { elementType: "geometry", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#33333d" }] },
+      { featureType: "poi", stylers: [{ visibility: "off" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d2d38" }] },
+      { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a22" }] },
+      { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "transit", stylers: [{ visibility: "off" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d0d11" }] }
+    ];
+
+    const latLng = new google.maps.LatLng(ownerFleetCenterCoords[0], ownerFleetCenterCoords[1]);
+    ownerFleetMap = new google.maps.Map(mapContainer, {
+      center: latLng,
+      zoom: 14,
+      styles: darkMapStyle,
+      disableDefaultUI: true,
+      zoomControl: true
+    });
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          ownerFleetCenterCoords = [position.coords.latitude, position.coords.longitude];
+          ownerFleetMap.setCenter(new google.maps.LatLng(ownerFleetCenterCoords[0], ownerFleetCenterCoords[1]));
+          renderMapMarkers(ownerFleetCenterCoords);
+        },
+        (error) => {
+          console.warn("Geolocation failed. Using fallback.", error);
+          renderMapMarkers(ownerFleetCenterCoords);
+        }
+      );
+    } else {
+      renderMapMarkers(ownerFleetCenterCoords);
+    }
   });
-
-  ownerFleetMap.addControl(new mapboxgl.NavigationControl(), 'top-left');
-
-  ownerFleetMap.on('move', () => { if (typeof updatePanelPosition === 'function') updatePanelPosition(); });
-  ownerFleetMap.on('zoom', () => { if (typeof updatePanelPosition === 'function') updatePanelPosition(); });
-  ownerFleetMap.on('resize', () => { if (typeof updatePanelPosition === 'function') updatePanelPosition(); });
-  window.addEventListener('resize', () => { if (typeof updatePanelPosition === 'function') updatePanelPosition(); });
-
-  // Try to fetch user geolocation
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        ownerFleetCenterCoords = [position.coords.latitude, position.coords.longitude];
-        ownerFleetMap.setCenter([ownerFleetCenterCoords[1], ownerFleetCenterCoords[0]]);
-        renderMapMarkers(ownerFleetCenterCoords);
-      },
-      (error) => {
-        console.warn("Geolocation failed or denied. Using fallback coordinates.", error);
-        renderMapMarkers(ownerFleetCenterCoords);
-      }
-    );
-  } else {
-    renderMapMarkers(ownerFleetCenterCoords);
-  }
 }
 
-// Render markers on the map relative to the center coordinate
 function renderMapMarkers(centerCoords) {
-  // Initialize ownerCentralMarker if not yet created
+  if (!ownerFleetMap) return;
+
+  const centerLatLng = new google.maps.LatLng(centerCoords[0], centerCoords[1]);
+
   if (!ownerCentralMarker) {
     const el = document.createElement('div');
     el.className = 'custom-map-marker central-marker';
@@ -1990,22 +2200,13 @@ function renderMapMarkers(centerCoords) {
       <i class="marker-icon-dot" style="background-color: var(--primary); width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
     `;
     
-    const popup = new mapboxgl.Popup({ offset: 15 }).setHTML(`
-      <div class="map-popup-card">
-        <h4 style="color: var(--color-text); margin: 0 0 4px 0; font-family: var(--font-display); font-weight: 700;">Sua Central</h4>
-        <p style="margin: 0; font-size: 0.8rem; color: var(--color-text-muted);">Localização em tempo real</p>
-      </div>
-    `);
-
-    ownerCentralMarker = new mapboxgl.Marker(el)
-      .setLngLat([centerCoords[1], centerCoords[0]])
-      .setPopup(popup)
-      .addTo(ownerFleetMap);
+    ownerCentralMarker = new window.CustomHTMLMapMarker(centerLatLng, ownerFleetMap, el.outerHTML, () => {
+      window.openBaseMapPopup();
+    });
   } else {
-    ownerCentralMarker.setLngLat([centerCoords[1], centerCoords[0]]);
+    ownerCentralMarker.setLatLng(centerLatLng);
   }
 
-  // Offsets to distribute riders around the center coordinates
   const offsets = [
     [0.004, -0.006],
     [0.008, 0.012],
@@ -2015,7 +2216,6 @@ function renderMapMarkers(centerCoords) {
     [-0.009, 0.005]
   ];
 
-
   const ridersLocations = mockData.fleet.length
     ? mockData.fleet.map((rider, index) => ({
         id: rider.id,
@@ -2023,36 +2223,33 @@ function renderMapMarkers(centerCoords) {
         vehicle: rider.vehicle,
         plate: rider.plate,
         status: rider.status,
-        statusColor: rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ffb700' : '#f97316'),
+        statusColor: rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ffb700' : '#22c55e'),
         offset: offsets[index % offsets.length]
       }))
     : [];
 
   const currentRidersNames = new Set(ridersLocations.map(r => r.name));
 
-  // If the active panel rider is no longer present, close the panel
   if (activePanelRiderName && !currentRidersNames.has(activePanelRiderName)) {
     closeFleetRiderPanel();
   }
 
-  // Remove markers of riders who are no longer active/present
   Object.keys(ownerFleetMarkers).forEach(name => {
     if (!currentRidersNames.has(name)) {
-      ownerFleetMarkers[name].remove();
+      if (ownerFleetMarkers[name] && ownerFleetMarkers[name].setMap) {
+        ownerFleetMarkers[name].setMap(null);
+      }
       delete ownerFleetMarkers[name];
     }
   });
 
-  // Add or update markers
   ridersLocations.forEach(rider => {
-    // Find matching rider details in mockData.fleet to make sure status is accurate
     const mockRider = mockData.fleet.find(r => r.name === rider.name);
     const currentStatus = mockRider ? mockRider.status : rider.status;
     const currentStatusColor = mockRider 
-      ? (mockRider.status === 'Em Descanso' ? '#8e8e9f' : (mockRider.statusClass === 'status-progress' ? '#ffb700' : '#f97316')) 
+      ? (mockRider.status === 'Em Descanso' ? '#8e8e9f' : (mockRider.statusClass === 'status-progress' ? '#ffb700' : '#22c55e')) 
       : rider.statusColor;
 
-    // Check if rider has real GPS coordinates in Supabase
     const hasRealGPS = mockRider && 
                        mockRider.lat !== null && 
                        mockRider.lat !== undefined && 
@@ -2070,124 +2267,830 @@ function renderMapMarkers(centerCoords) {
 
     const isPulsing = currentStatus !== 'Em Descanso';
     const markerHtml = `
-      ${isPulsing ? `<div class="marker-pulse" style="border-color: ${currentStatusColor};"></div>` : ''}
-      <i class="marker-icon-dot"></i>
+      <div class="custom-map-marker" style="background-color: ${currentStatusColor}; box-shadow: 0 0 10px ${currentStatusColor}; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;">
+        ${isPulsing ? `<div class="marker-pulse" style="border-color: ${currentStatusColor}; position: absolute; top: -5px; left: -5px; width: 24px; height: 24px; border: 2px solid ${currentStatusColor}; border-radius: 50%; animation: pulse-dot-anim 2.5s infinite;"></div>` : ''}
+        <i class="marker-icon-dot" style="background-color: #fff; width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
+      </div>
     `;
 
-    // Update panel in-place if it is already open for this rider
-    if (activePanelRiderName === rider.name) {
-      showFleetRiderPanel(rider, mockRider, currentStatus, currentStatusColor);
-    }
-
+    const riderLatLng = new google.maps.LatLng(riderCoords[0], riderCoords[1]);
     let markerEntry = ownerFleetMarkers[rider.name];
     if (markerEntry) {
-      markerEntry.setLngLat([riderCoords[1], riderCoords[0]]);
-      const markerEl = markerEntry.getElement();
-      if (markerEl) {
-        markerEl.style.backgroundColor = currentStatusColor;
-        markerEl.style.boxShadow = `0 0 10px ${currentStatusColor}`;
-        markerEl.innerHTML = markerHtml;
-        markerEl.onclick = (e) => {
-          e.stopPropagation();
-          showFleetRiderPanel(rider, mockRider, currentStatus, currentStatusColor);
-        };
-      }
+      markerEntry.setLatLng(riderLatLng);
     } else {
-      const el = document.createElement('div');
-      el.className = 'custom-map-marker';
-      el.style.backgroundColor = currentStatusColor;
-      el.style.boxShadow = `0 0 10px ${currentStatusColor}`;
-      el.innerHTML = markerHtml;
-      el.onclick = (e) => {
-        e.stopPropagation();
-        showFleetRiderPanel(rider, mockRider, currentStatus, currentStatusColor);
-      };
-
-      const marker = new mapboxgl.Marker(el)
-        .setLngLat([riderCoords[1], riderCoords[0]])
-        .addTo(ownerFleetMap);
+      const marker = new window.CustomHTMLMapMarker(riderLatLng, ownerFleetMap, markerHtml, () => {
+        window.openRiderMapPopup(rider.id);
+      });
       ownerFleetMarkers[rider.name] = marker;
     }
 
     if (mockRider && selectedMapRiderId === mockRider.id) {
-      ownerFleetMap.setCenter([riderCoords[1], riderCoords[0]]);
+      ownerFleetMap.setCenter(riderLatLng);
       ownerFleetMap.setZoom(16);
-      setTimeout(() => showFleetRiderPanel(rider, mockRider, currentStatus, currentStatusColor), 150);
+      setTimeout(() => window.openRiderMapPopup(rider.id), 150);
       selectedMapRiderId = null; // reset to avoid locking view
     }
   });
 }
 
-// Render pending deliveries (dispatch system) cards
-function renderPendingDeliveries() {
-  const container = document.getElementById('pending-deliveries-container');
+window.openRiderMapPopup = function(riderId) {
+  const rider = mockData.fleet.find(r => r.id === riderId);
+  if (!rider) return;
+
+  const currentStatus = rider.status;
+  const currentStatusColor = rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ffb700' : '#22c55e');
+
+  let pendingOptions = '<option value="" disabled selected>Vincular Tele...</option>';
+  if (mockData.pendingDeliveries.length > 0) {
+    mockData.pendingDeliveries.forEach(d => {
+      pendingOptions += `<option value="${d.id}" style="color: #fff; background: #1e1e24;">${d.id} - ${d.destName || 'Cliente'} (${d.price})</option>`;
+    });
+  } else {
+    pendingOptions = '<option value="" disabled>Nenhuma tele disponível</option>';
+  }
+
+  const assignedTeles = getActiveOrdersForRider(rider);
+  let assignedHtml = '';
+  if (assignedTeles.length > 0) {
+    assignedTeles.forEach(t => {
+      assignedHtml += `
+        <div style="display: flex; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.05); padding: 6px 8px; border-radius: 4px; margin-bottom: 6px;">
+          <div style="font-size: 0.8rem; color: #fff;">
+            <strong>${t.id}</strong> • ${t.destName || 'Cliente'} (${t.price})
+          </div>
+          <button onclick="window.removeTeleFromRiderFromPopup('${t.id}', '${rider.id}')" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 4px; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none;" title="Desvincular Tele">
+            <i data-lucide="trash-2" style="width: 12px; height: 12px;"></i>
+          </button>
+        </div>
+      `;
+    });
+  } else {
+    assignedHtml = `<p style="margin: 0; font-size: 0.8rem; color: #8e8e9f; font-style: italic;">Nenhuma tele atribuída</p>`;
+  }
+
+  const htmlContent = `
+    <div style="padding: 16px; min-width: 260px; font-family: sans-serif; color: #fff; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; margin-bottom: 12px; padding-right: 28px;">
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">${rider.name}</h4>
+        <span class="status-indicator" style="background-color: ${currentStatusColor}; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; color: #fff; font-weight: 600; flex-shrink: 0; margin-left: 8px;">
+          ${currentStatus}
+        </span>
+      </div>
+      
+      <div style="margin-bottom: 12px;">
+        <label style="display: block; font-size: 0.75rem; color: #8e8e9f; margin-bottom: 4px;">Vincular Nova Tele</label>
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <select id="popup-select-${rider.id}" style="flex: 1; background: #121216; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 4px; color: #fff; font-size: 0.8rem; padding: 4px 8px; outline: none; height: 32px; box-sizing: border-box;">
+            ${pendingOptions}
+          </select>
+          <button onclick="window.dispatchDeliveryFromPopup('${rider.id}', 'popup-select-${rider.id}')" style="background: #ffb700; border: none; border-radius: 4px; color: #000; font-size: 0.8rem; font-weight: 700; padding: 0 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; height: 32px; box-sizing: border-box; flex-shrink: 0; transition: all 0.2s;">
+            Adicionar
+          </button>
+        </div>
+      </div>
+      
+      <div>
+        <label style="display: block; font-size: 0.75rem; color: #8e8e9f; margin-bottom: 6px;">Teles Atribuídas (${assignedTeles.length})</label>
+        ${assignedHtml}
+      </div>
+    </div>
+  `;
+
+  const centerCoords = ownerFleetCenterCoords;
+  const offsets = [[0.004, -0.006], [0.008, 0.012], [-0.005, 0.009], [-0.012, -0.004], [0.003, -0.015], [-0.009, 0.005]];
+  const index = mockData.fleet.findIndex(r => r.id === rider.id);
+  
+  const hasRealGPS = rider.lat !== null && rider.lat !== undefined && !isNaN(parseFloat(rider.lat)) && rider.lng !== null && rider.lng !== undefined && !isNaN(parseFloat(rider.lng));
+
+  let coords;
+  if (hasRealGPS) {
+    coords = [parseFloat(rider.lat), parseFloat(rider.lng)];
+  } else {
+    const offset = offsets[index % offsets.length] || [0, 0];
+    coords = [centerCoords[0] + offset[0], centerCoords[1] + offset[1]];
+  }
+
+  if (ownerFleetInfoWindow) {
+    ownerFleetInfoWindow.close();
+  }
+  
+  ownerFleetInfoWindow = new google.maps.InfoWindow({
+    content: htmlContent,
+    position: new google.maps.LatLng(coords[0], coords[1])
+  });
+  
+  ownerFleetInfoWindow.open(ownerFleetMap);
+  
+  setTimeout(() => {
+    if (window.lucide) lucide.createIcons();
+  }, 100);
+};
+
+window.openBaseMapPopup = function() {
+  const currentCreds = mockData.credentials[mockData.activeProfile];
+  const currentCommerce = (currentCreds && currentCreds.commerceName) ? currentCreds.commerceName : 'Parceiro Garra';
+  
+  const commerceAddresses = {
+    'Parceiro Garra': 'Av. Sapucaia, 1250 - Centro, Sapucaia do Sul - RS',
+    'Bora Açaí': 'Rua Flores da Cunha, 450 - Centro, Sapucaia do Sul - RS'
+  };
+  const address = commerceAddresses[currentCommerce] || 'Av. Sapucaia, 1250 - Centro, Sapucaia do Sul - RS';
+
+  const pendingCount = mockData.pendingDeliveries.length;
+  const collectingCount = mockData.clientHistory.filter(o => o.status === 'A caminho da coleta').length;
+
+  const htmlContent = `
+    <div style="padding: 16px; min-width: 260px; font-family: sans-serif; color: #fff; box-sizing: border-box;">
+      <h4 style="margin: 0 0 8px 0; font-size: 0.95rem; font-weight: 700; color: #fff; padding-right: 28px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; margin-bottom: 12px;">${currentCommerce}</h4>
+      <p style="margin: 0 0 10px 0; font-size: 0.8rem; color: #8e8e9f; display: flex; align-items: start; gap: 4px;">
+        <i data-lucide="map-pin" style="width: 14px; height: 14px; flex-shrink: 0; color: #ffb700; margin-top: 1px;"></i>
+        <span>${address}</span>
+      </p>
+      <div style="padding-top: 4px; display: flex; flex-direction: column; gap: 6px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+          <span style="color: #8e8e9f;">Teles Pendentes:</span>
+          <strong style="color: #ffb700;">${pendingCount}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.8rem;">
+          <span style="color: #8e8e9f;">A caminho da coleta:</span>
+          <strong style="color: #ffb700;">${collectingCount}</strong>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const centerCoords = ownerFleetCenterCoords;
+
+  if (ownerFleetInfoWindow) {
+    ownerFleetInfoWindow.close();
+  }
+  
+  ownerFleetInfoWindow = new google.maps.InfoWindow({
+    content: htmlContent,
+    position: new google.maps.LatLng(centerCoords[0], centerCoords[1])
+  });
+  
+  ownerFleetInfoWindow.open(ownerFleetMap);
+
+  setTimeout(() => {
+    if (window.lucide) lucide.createIcons();
+  }, 100);
+};
+
+window.dispatchDeliveryFromPopup = async function(riderId, selectId) {
+  const select = document.getElementById(selectId);
+  if (!select || !select.value) {
+    alert("Selecione uma tele para vincular.");
+    return;
+  }
+  const teleId = select.value;
+  await dispatchDelivery(teleId, riderId);
+  window.openRiderMapPopup(riderId);
+};
+
+window.removeTeleFromRiderFromPopup = async function(deliveryId, riderId) {
+  const rider = mockData.fleet.find(r => r.id === riderId);
+  if (!rider) return;
+  await removeTeleFromRider(deliveryId, rider.id);
+  window.openRiderMapPopup(riderId);
+};
+
+// Calculate Rider's 90% share of delivery cost
+function calculateRiderShare(priceStr) {
+  const price = parseMoneyBR(priceStr);
+  const share = price * 0.90;
+  return formatMoneyBR(share);
+}
+
+window.startEditPrice = function(itemId, itemType) {
+  const cleanId = itemId.replace('#', '');
+  const container = document.getElementById(`price-container-${cleanId}`);
   if (!container) return;
 
-  const pendingBadge = document.getElementById('pending-count-badge');
-  if (pendingBadge) pendingBadge.innerText = mockData.pendingDeliveries.length + ' pendentes';
+  let currentPriceStr = '';
+  if (itemType === 'pending') {
+    const item = mockData.pendingDeliveries.find(d => d.id === itemId);
+    currentPriceStr = item ? item.price : 'R$ 0,00';
+  } else {
+    const item = mockData.clientHistory.find(d => d.id === itemId);
+    currentPriceStr = item ? item.price : 'R$ 0,00';
+  }
 
-  if (mockData.pendingDeliveries.length === 0) {
+  const numValue = parseMoneyBR(currentPriceStr);
+
+  container.innerHTML = `
+    <input type="number" id="edit-price-input-${cleanId}" value="${numValue.toFixed(2)}" step="0.50" min="0" style="width: 70px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 4px; color: var(--color-text); font-size: 0.8rem; padding: 2px 4px; outline: none; height: 24px; box-sizing: border-box; display: inline-block; vertical-align: middle;">
+    <div style="display: inline-flex; gap: 4px; align-items: center; vertical-align: middle; margin-left: 4px;">
+      <button onclick="window.saveEditPrice('${itemId}', '${itemType}')" style="background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.3); color: var(--success); border-radius: 4px; padding: 2px 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; font-size: 0.75rem; height: 24px; width: 24px; box-sizing: border-box;" title="Salvar">
+        <i data-lucide="check" style="width: 12px; height: 12px;"></i>
+      </button>
+      <button onclick="window.cancelEditPrice('${itemId}', '${itemType}')" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 4px; padding: 2px 4px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; font-size: 0.75rem; height: 24px; width: 24px; box-sizing: border-box;" title="Cancelar">
+        <i data-lucide="x" style="width: 12px; height: 12px;"></i>
+      </button>
+    </div>
+  `;
+  lucide.createIcons();
+};
+
+window.cancelEditPrice = function(itemId, itemType) {
+  window.renderTelesUnified();
+};
+
+window.saveEditPrice = async function(itemId, itemType) {
+  const cleanId = itemId.replace('#', '');
+  const input = document.getElementById(`edit-price-input-${cleanId}`);
+  if (!input) return;
+
+  const newValue = parseFloat(input.value);
+  if (isNaN(newValue) || newValue < 0) {
+    alert("Por favor, insira um valor numérico válido maior ou igual a zero.");
+    return;
+  }
+
+  const priceFormatted = `R$ ${newValue.toFixed(2).replace('.', ',')}`;
+
+  if (supabaseClient) {
+    // 1. Verify eligibility (must not be canceled or completed)
+    if (itemType === 'active') {
+      const { data, error: checkError } = await supabaseClient
+        .from('client_history')
+        .select('status')
+        .eq('id', itemId)
+        .single();
+      
+      if (checkError || !data) {
+        alert("Erro ao verificar o status da tele no banco de dados.");
+        return;
+      }
+      
+      if (data.status === 'Entregue' || data.status === 'Concluído' || data.status === 'Cancelado') {
+        alert("Operação bloqueada: Esta tele já foi concluída ou cancelada e não pode mais ser editada.");
+        await fetchPendingDeliveries();
+        await fetchClientHistory();
+        window.renderTelesUnified();
+        return;
+      }
+    } else if (itemType === 'pending') {
+      const { data, error: checkError } = await supabaseClient
+        .from('pending_deliveries')
+        .select('id')
+        .eq('id', itemId);
+        
+      if (checkError || !data || data.length === 0) {
+        alert("Operação bloqueada: Esta tele foi despachada, cancelada ou modificada.");
+        await fetchPendingDeliveries();
+        await fetchClientHistory();
+        window.renderTelesUnified();
+        return;
+      }
+    }
+
+    // 2. Perform DB Update
+    const table = itemType === 'pending' ? 'pending_deliveries' : 'client_history';
+    const { error: updateError } = await supabaseClient
+      .from(table)
+      .update({ price: priceFormatted })
+      .eq('id', itemId);
+
+    if (updateError) {
+      console.error("Error updating price on Supabase:", updateError);
+      alert("Erro ao atualizar a taxa de entrega no banco de dados.");
+      return;
+    }
+  }
+
+  // 3. Update local state
+  if (itemType === 'pending') {
+    const idx = mockData.pendingDeliveries.findIndex(d => d.id === itemId);
+    if (idx !== -1) {
+      mockData.pendingDeliveries[idx].price = priceFormatted;
+    }
+  } else {
+    const idx = mockData.clientHistory.findIndex(o => o.id === itemId);
+    if (idx !== -1) {
+      mockData.clientHistory[idx].price = priceFormatted;
+    }
+  }
+
+  // 4. Update UI in real-time
+  window.renderTelesUnified();
+  showToastNotification(`Taxa da tele ${itemId} atualizada para ${priceFormatted}.`);
+};
+
+// Generate integration origin badge
+function getOriginBadgeHtml(paymentStr, idStr) {
+  const payment = (paymentStr || '').toLowerCase();
+  const id = (idStr || '').toLowerCase();
+  if (payment.includes('ifood') || id.includes('ifood')) {
+    return `<span class="badge" style="background: rgba(234, 29, 44, 0.1); color: #ea1d2c; border: 1px solid rgba(234, 29, 44, 0.2);">iFood</span>`;
+  }
+  if (payment.includes('99food') || id.includes('99food')) {
+    return `<span class="badge" style="background: rgba(250, 90, 30, 0.1); color: #fa5a1e; border: 1px solid rgba(250, 90, 30, 0.2);">99Food</span>`;
+  }
+  return `<span class="badge" style="background: rgba(255, 183, 0, 0.1); color: var(--primary); border: 1px solid var(--primary-glow);">Manual</span>`;
+}
+
+function getFixedPriceByAddress(address) {
+  const addr = (address || '').toLowerCase();
+  if (addr.includes('esteio')) {
+    return 10.00;
+  }
+  return 8.00;
+}
+
+// Unified Teles Render Engine
+window.renderTelesUnified = function() {
+  const container = document.getElementById('teles-content-container');
+  if (!container) return;
+
+  // 1. Calculate Real-Time Stats
+  const pendingCount = mockData.pendingDeliveries.length;
+  const activeCount = mockData.clientHistory.filter(o => o.status !== 'Entregue' && o.status !== 'Concluído' && o.status !== 'Cancelado').length;
+  const completedCount = mockData.clientHistory.filter(o => o.status === 'Entregue' || o.status === 'Concluído').length;
+  const canceledCount = mockData.clientHistory.filter(o => o.status === 'Cancelado').length;
+  const allCount = pendingCount + activeCount + completedCount + canceledCount;
+
+  // Update real-time counter badges in UI
+  const elAll = document.getElementById('count-all');
+  const elPending = document.getElementById('count-pending');
+  const elActive = document.getElementById('count-active');
+  const elCompleted = document.getElementById('count-completed');
+  const elCanceled = document.getElementById('count-canceled');
+
+  if (elAll) elAll.innerText = allCount;
+  if (elPending) elPending.innerText = pendingCount;
+  if (elActive) elActive.innerText = activeCount;
+  if (elCompleted) elCompleted.innerText = completedCount;
+  if (elCanceled) elCanceled.innerText = canceledCount;
+
+  // 2. Format and Merge Lists
+  const pendingItems = mockData.pendingDeliveries.map(d => {
+    const fixedPrice = getFixedPriceByAddress(d.address);
+    const priceFormatted = `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`;
+    const repasseFormatted = `R$ ${(fixedPrice * 0.9).toFixed(2).replace('.', ',')}`;
+
+    return {
+      id: d.id,
+      type: 'pending',
+      client: d.client || 'Parceiro Garra',
+      destName: d.destName,
+      address: d.address,
+      dest_lat: d.dest_lat,
+      dest_lng: d.dest_lng,
+      dist: d.dist || '—',
+      price: priceFormatted,
+      payment: d.payment || 'A combinar',
+      cargo: d.cargo || 'Pedido',
+      repasseMotoboy: repasseFormatted,
+      rider: 'Aguardando...',
+      riderId: null,
+      date: 'Hoje, Agora',
+      created_at: d.created_at,
+      status: 'Pendente',
+      statusClass: 'status-warning'
+    };
+  });
+
+  const historyItems = mockData.clientHistory.map(o => {
+    let type = 'active';
+    if (o.status === 'Entregue' || o.status === 'Concluído') type = 'completed';
+    else if (o.status === 'Cancelado') type = 'canceled';
+    
+    const fixedPrice = getFixedPriceByAddress(o.address);
+    const priceFormatted = `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`;
+    const repasseFormatted = `R$ ${(fixedPrice * 0.9).toFixed(2).replace('.', ',')}`;
+
+    return {
+      id: o.id,
+      type: type,
+      client: o.client || 'Parceiro Garra',
+      destName: o.destName,
+      address: o.address,
+      dest_lat: o.dest_lat,
+      dest_lng: o.dest_lng,
+      dist: o.dist || '—',
+      price: priceFormatted,
+      payment: o.payment || 'Pago',
+      cargo: o.cargo || 'Pedido',
+      repasseMotoboy: repasseFormatted,
+      rider: o.rider,
+      riderId: (mockData.fleet.find(r => r.name === o.rider) || {}).id || null,
+      date: o.date,
+      created_at: o.created_at,
+      status: o.status,
+      statusClass: o.statusClass || (o.status === 'Entregue' || o.status === 'Concluído' ? 'status-success' : (o.status === 'Cancelado' ? 'status-danger' : 'status-progress'))
+    };
+  });
+
+  const allItems = [...pendingItems, ...historyItems];
+
+  // Apply Filter
+  let filteredList = [];
+  if (currentTeleFilter === 'all') {
+    filteredList = allItems;
+  } else {
+    filteredList = allItems.filter(item => item.type === currentTeleFilter);
+  }
+
+  // Sort descending by ID
+  filteredList.sort((a, b) => b.id.localeCompare(a.id));
+
+  // 3. Output selected view mode
+  if (teleViewMode === 'grid') {
+    renderTelesGrid(filteredList);
+  } else {
+    renderTelesTable(filteredList);
+  }
+};
+
+function renderTelesGrid(list) {
+  const container = document.getElementById('teles-content-container');
+  if (list.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 40px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
-        <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--success); margin-bottom: 12px; display: inline-block;"></i>
-        <p style="font-weight: 600; color: var(--color-text);">Tudo em ordem!</p>
-        <p style="font-size: 0.9rem;">Nenhuma tele pendente de despacho no momento.</p>
+      <div style="text-align: center; padding: 40px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
+        <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--color-text-muted); margin-bottom: 12px; display: inline-block;"></i>
+        <p style="font-weight: 600; color: var(--color-text);">Nenhuma tele encontrada</p>
+        <p style="font-size: 0.9rem;">Nenhuma tele atende aos critérios do filtro selecionado.</p>
       </div>
     `;
     lucide.createIcons();
     return;
   }
 
-  container.innerHTML = '';
-  mockData.pendingDeliveries.forEach(delivery => {
-    // Generate active riders list options for dropdown
-    const activeRidersOptions = mockData.fleet
-      .filter(rider => rider.status !== 'Em Descanso')
-      .map(rider => `<option value="${escapeHtml(rider.id)}">${escapeHtml(rider.name)} (${escapeHtml(rider.status)})</option>`)
-      .join('');
+  let html = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">`;
 
-    const card = document.createElement('div');
-    card.className = 'pending-card';
-    card.innerHTML = `
-      <div class="pending-card-header">
-        <strong style="font-family: var(--font-display);">${delivery.id}</strong>
-        <span class="badge badge-warning" style="background: var(--primary-glow); color: var(--primary);">${delivery.client}</span>
-      </div>
-      <div class="pending-card-body">
-        <p><strong>Destino:</strong> ${delivery.destName}</p>
-        <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i data-lucide="map-pin" style="width: 12px; height: 12px;"></i> ${delivery.address}</p>
-        <p style="margin-top: 6px;"><strong>Mercadoria:</strong> ${delivery.cargo}</p>
-        <p><strong>Valor:</strong> <span class="text-yellow" style="color: var(--primary) !important;">${delivery.price}</span> (${delivery.payment})</p>
-      </div>
-      <div class="pending-card-footer" style="display: flex; gap: 8px; align-items: flex-end; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
-        <div class="form-group flex-1" style="margin-bottom: 0;">
-          <label style="font-size: 0.75rem; margin-bottom: 4px; display: block; color: var(--color-text-muted);">Enviar para:</label>
-          <div class="input-wrapper" style="width: 100%;">
-            <select id="select-rider-${delivery.id.replace('#', '')}" style="background-color: var(--bg-input); border: 1px solid var(--border-color); color: var(--color-text); padding: 8px 10px; font-size: 0.8rem; border-radius: 4px; width: 100%; outline: none; appearance: none; cursor: pointer;">
-              <option value="" disabled selected>Selecionar Motoboy</option>
-              ${activeRidersOptions}
-            </select>
+  list.forEach(item => {
+    const originBadge = getOriginBadgeHtml(item.payment, item.id);
+    if (item.type === 'pending') {
+      const onlineRiders = mockData.fleet.filter(r => r.status !== 'Em Descanso');
+      const selectId = `pending-select-${item.id.replace('#', '')}`;
+      const riderOptions = onlineRiders.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.status)})</option>`).join('');
+      
+      html += `
+        <div class="active-card" style="border: 1px solid rgba(255, 183, 0, 0.2);">
+          <div class="active-card-header">
+            <strong style="font-family: var(--font-display);">${formatOrderIdForDisplay(item.id, item.payment, item.client)}</strong>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              ${originBadge}
+              <span class="badge badge-warning" style="background: var(--primary-glow); color: var(--primary);">${item.client}</span>
+            </div>
+          </div>
+            <p><strong>Destino:</strong> ${item.destName}</p>
+            <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px; line-height: 1.4;">
+              <i data-lucide="map-pin" style="width: 12px; height: 12px; flex-shrink: 0;"></i> 
+              <span style="flex: 1;">${item.address}</span>
+              ${item.dest_lat && item.dest_lng ? `
+                <button onclick="window.openQuickMapModal('${item.id}', ${item.dest_lat}, ${item.dest_lng})" style="background: rgba(255, 185, 0, 0.15); border: 1px solid rgba(255, 185, 0, 0.3); color: var(--primary); border-radius: 4px; padding: 2px 5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; transition: all 0.2s;" title="Visualizar no Mapa">
+                  <i data-lucide="map" style="width: 12px; height: 12px;"></i>
+                </button>
+              ` : ''}
+            </p>
+            <p style="margin-top: 6px;"><strong>Mercadoria:</strong> ${item.cargo}</p>
+            <p style="margin-top: 4px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+              <strong>Distância:</strong> ${item.dist.split('|')[0]} • 
+              <strong>Taxa:</strong> 
+              <span id="price-container-${item.id.replace('#', '')}" style="display: inline-flex; align-items: center; gap: 4px;">
+                <span style="font-weight: 600; color: var(--primary);">${item.price}</span>
+                <button onclick="window.startEditPrice('${item.id}', '${item.type}')" style="background: none; border: none; padding: 0; color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; transition: color 0.2s;" onmouseenter="this.style.color='var(--primary)'" onmouseleave="this.style.color='var(--color-text-muted)'" title="Editar Taxa">
+                  <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
+                </button>
+              </span>
+              (Repasse: <span id="repasse-container-${item.id.replace('#', '')}">${item.repasseMotoboy}</span>)
+            </p>
+            <p style="margin-top: 4px;"><strong>Status:</strong> <span class="status-indicator status-warning">${item.status}</span></p>
+            
+            <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+              <select id="${selectId}" style="flex: 1; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.8rem; padding: 6px; outline: none; height: 32px;">
+                <option value="" disabled selected>Selecionar Motoboy...</option>
+                ${riderOptions}
+              </select>
+              <button class="btn btn-primary btn-sm" onclick="handleCardDispatch('${item.id}', '${selectId}')" style="height: 32px; padding: 0 12px; font-size: 0.8rem;">
+                Despachar
+              </button>
+            </div>
+          </div>
+          <div class="active-card-footer" style="display: flex; justify-content: flex-end; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <button class="btn btn-sm" onclick="handleCancelTeleClick('${item.id}', 'Nenhum', 'pending')" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; height: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);">
+              <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Cancelar Tele
+            </button>
           </div>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="handleDispatchClick('${delivery.id}')" style="padding: 8px 12px; font-size: 0.8rem; border-radius: 4px; height: 33px; min-width: 40px; display: flex; justify-content: center; align-items: center;">
-          <i data-lucide="send"></i>
-        </button>
-      </div>
-    `;
-    container.appendChild(card);
+      `;
+    } else {
+      const isCanceled = item.type === 'canceled';
+      const isCompleted = item.type === 'completed';
+      
+      let footerHtml = '';
+      if (item.type === 'active') {
+        footerHtml = `
+          <div class="active-card-footer" style="display: flex; gap: 8px; justify-content: space-between; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+            <button class="btn btn-secondary btn-sm" onclick="handleCompleteClick('${item.id}', '${item.rider}')" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; height: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: var(--secondary); color: var(--color-text); border: 1px solid var(--border-color);">
+              <i data-lucide="check-circle" style="width: 14px; height: 14px; color: var(--success);"></i> Concluir
+            </button>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm" onclick="handleWithdrawClick('${item.id}', '${item.rider}')" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; height: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" title="Retirar Motoboy">
+                <i data-lucide="user-x" style="width: 14px; height: 14px;"></i> Retirar
+              </button>
+              <button class="btn btn-sm" onclick="handleCancelTeleClick('${item.id}', '${item.rider}', 'active')" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; height: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25);" title="Cancelar Tele">
+                <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Cancelar
+              </button>
+            </div>
+          </div>
+        `;
+      } else {
+        footerHtml = `
+          <div style="display: flex; justify-content: space-between; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px; font-size: 0.78rem; color: var(--color-text-muted);">
+            <span><strong>Data:</strong> ${formatOrderDate(item.date, item.created_at)}</span>
+          </div>
+        `;
+      }
+
+      html += `
+        <div class="active-card" style="border: 1px solid ${isCanceled ? 'rgba(239, 68, 68, 0.2)' : (isCompleted ? 'rgba(34, 197, 94, 0.2)' : 'var(--border-color)')};">
+          <div class="active-card-header">
+            <strong style="font-family: var(--font-display);">${formatOrderIdForDisplay(item.id, item.payment, item.client)}</strong>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              ${originBadge}
+              <span class="badge ${isCanceled ? 'badge-danger' : 'badge-success'}" style="background: ${isCanceled ? 'rgba(239, 68, 68, 0.1)' : 'var(--success-glow)'}; color: ${isCanceled ? '#ef4444' : 'var(--success)'}; border-color: rgba(255,255,255,0.05);">${item.client}</span>
+            </div>
+          </div>
+          <div class="active-card-body">
+            <p><strong>Destino:</strong> ${item.destName}</p>
+            <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i data-lucide="map-pin" style="width: 12px; height: 12px;"></i> ${item.address}</p>
+            <p style="margin-top: 6px;"><strong>Mercadoria:</strong> ${item.cargo}</p>
+            <p style="margin-top: 4px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+              <strong>Distância:</strong> ${item.dist.split('|')[0]} • 
+              <strong>Taxa:</strong> 
+              ${item.type === 'active' ? `
+                <span id="price-container-${item.id.replace('#', '')}" style="display: inline-flex; align-items: center; gap: 4px;">
+                  <span style="font-weight: 600; color: var(--primary);">${item.price}</span>
+                  <button onclick="window.startEditPrice('${item.id}', '${item.type}')" style="background: none; border: none; padding: 0; color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; transition: color 0.2s;" onmouseenter="this.style.color='var(--primary)'" onmouseleave="this.style.color='var(--color-text-muted)'" title="Editar Taxa">
+                    <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
+                  </button>
+                </span>
+              ` : `
+                <span style="font-weight: 600; color: var(--primary);">${item.price}</span>
+              `}
+              (Repasse: <span id="repasse-container-${item.id.replace('#', '')}">${item.repasseMotoboy}</span>)
+            </p>
+            <p style="margin-top: 4px;"><strong>Status:</strong> <span class="status-indicator ${item.statusClass}">${item.status}</span></p>
+            
+            <div class="rider-info-row" style="margin-top: 10px; display: flex; align-items: center; gap: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); padding: 8px 12px; border-radius: 6px;">
+              <div style="background: ${isCanceled ? 'rgba(239, 68, 68, 0.1)' : 'var(--primary-glow)'}; color: ${isCanceled ? '#ef4444' : 'var(--primary)'}; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                <i data-lucide="bike" style="width: 16px; height: 16px;"></i>
+              </div>
+              <div>
+                <p class="text-xs text-muted" style="margin: 0; line-height: 1;">Entregador</p>
+                <strong style="font-size: 0.85rem; color: var(--color-text);">${item.rider}</strong>
+              </div>
+            </div>
+          </div>
+          ${footerHtml}
+        </div>
+      `;
+    }
   });
+
+  html += `</div>`;
+  container.innerHTML = html;
   lucide.createIcons();
 }
 
-// Wrapper function to dispatch from lists button click
-window.handleDispatchClick = function(deliveryId) {
-  const safeId = deliveryId.replace('#', '');
-  const select = document.getElementById(`select-rider-${safeId}`);
+function renderTelesTable(list) {
+  const container = document.getElementById('teles-content-container');
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 40px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
+        <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--color-text-muted); margin-bottom: 12px; display: inline-block;"></i>
+        <p style="font-weight: 600; color: var(--color-text);">Nenhuma tele encontrada</p>
+        <p style="font-size: 0.9rem;">Nenhuma tele atende aos critérios do filtro selecionado.</p>
+      </div>
+    `;
+    lucide.createIcons();
+    return;
+  }
+
+  const onlineRiders = mockData.fleet.filter(r => r.status !== 'Em Descanso');
+
+  let html = `
+    <div class="table-responsive">
+      <table class="compact-table">
+        <thead>
+          <tr>
+            <th>Origem</th>
+            <th>Código</th>
+            <th>Cliente</th>
+            <th>Destinatário / Endereço</th>
+            <th>Motoboy Atribuído</th>
+            <th>Data/Hora</th>
+            <th>Valores (Taxa/Repasse)</th>
+            <th style="text-align: right;">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  list.forEach(item => {
+    const originBadge = getOriginBadgeHtml(item.payment, item.id);
+    let riderColumnHtml = '';
+    const isPending = item.type === 'pending';
+    const isCanceled = item.type === 'canceled';
+    const isCompleted = item.type === 'completed';
+
+    if (isPending) {
+      const selectId = `table-select-${item.id.replace('#', '')}`;
+      const riderOptions = onlineRiders.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (${escapeHtml(r.status)})</option>`).join('');
+      riderColumnHtml = `
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <select id="${selectId}" class="inline-select" onchange="handleTableDispatch('${item.id}', '${selectId}')" style="background-color: var(--bg-input); border: 1px solid var(--border-color); color: var(--color-text); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; outline: none; width: 100%;">
+            <option value="" disabled selected>Vincular...</option>
+            ${riderOptions}
+          </select>
+        </div>
+      `;
+    } else if (item.type === 'active') {
+      const selectId = `table-select-${item.id.replace('#', '')}`;
+      const riderOptions = onlineRiders.map(r => `<option value="${r.id}" ${r.name === item.rider ? 'selected' : ''}>${escapeHtml(r.name)} (${escapeHtml(r.status)})</option>`).join('');
+      riderColumnHtml = `
+        <select id="${selectId}" class="inline-select" onchange="handleTableReassign('${item.id}', '${item.rider}', this.value)" style="background-color: var(--bg-input); border: 1px solid var(--border-color); color: var(--color-text); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; outline: none; width: 100%;">
+          ${riderOptions}
+        </select>
+      `;
+    } else {
+      riderColumnHtml = `
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="bike" style="width: 14px; height: 14px; color: var(--color-text-muted);"></i>
+          <span>${item.rider}</span>
+        </div>
+      `;
+    }
+
+    let actionsHtml = '';
+    if (item.type === 'active') {
+      actionsHtml = `
+        <button class="table-action-btn btn-success" onclick="handleCompleteClick('${item.id}', '${item.rider}')" title="Concluir Entrega">
+          <i data-lucide="check-circle" style="width: 18px; height: 18px; color: var(--success);"></i>
+        </button>
+        <button class="table-action-btn btn-warning" onclick="handleWithdrawClick('${item.id}', '${item.rider}')" title="Retirar Motoboy">
+          <i data-lucide="user-x" style="width: 18px; height: 18px; color: var(--warning);"></i>
+        </button>
+        <button class="table-action-btn btn-danger" onclick="handleCancelTeleClick('${item.id}', '${item.rider}', 'active')" title="Cancelar Tele">
+          <i data-lucide="trash-2" style="width: 18px; height: 18px; color: #ef4444;"></i>
+        </button>
+      `;
+    } else if (isPending) {
+      actionsHtml = `
+        <button class="table-action-btn btn-danger" onclick="handleCancelTeleClick('${item.id}', 'Nenhum', 'pending')" title="Cancelar Tele">
+          <i data-lucide="trash-2" style="width: 18px; height: 18px; color: #ef4444;"></i>
+        </button>
+      `;
+    } else {
+      actionsHtml = `<span style="font-size: 0.75rem; color: var(--color-text-muted); font-style: italic;">Histórico</span>`;
+    }
+
+    html += `
+      <tr>
+        <td>${originBadge}</td>
+        <td><strong>${formatOrderIdForDisplay(item.id, item.payment, item.client)}</strong></td>
+        <td><span class="badge" style="background: var(--bg-card-hover); border: 1px solid var(--border-color); color: var(--color-text);">${item.client}</span></td>
+        <td>
+          <div style="font-weight: 600;">${item.destName}</div>
+          <div style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 2px; display: flex; align-items: center; gap: 6px;">
+            <span>${item.address}</span>
+            ${isPending && item.dest_lat && item.dest_lng ? `
+              <button onclick="window.openQuickMapModal('${item.id}', ${item.dest_lat}, ${item.dest_lng})" style="background: rgba(255, 185, 0, 0.15); border: 1px solid rgba(255, 185, 0, 0.3); color: var(--primary); border-radius: 4px; padding: 2px 5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; border: none; transition: all 0.2s;" title="Visualizar no Mapa">
+                <i data-lucide="map" style="width: 12px; height: 12px;"></i>
+              </button>
+            ` : ''}
+          </div>
+        </td>
+        <td>${riderColumnHtml}</td>
+        <td><span style="font-size: 0.78rem;">${formatOrderDate(item.date, item.created_at)}</span></td>
+        <td>
+          <div id="price-container-${item.id.replace('#', '')}" style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-weight: 600; color: var(--primary);">${item.price}</span>
+            ${(item.type === 'pending' || item.type === 'active') ? `
+              <button onclick="window.startEditPrice('${item.id}', '${item.type}')" style="background: none; border: none; padding: 0; color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; transition: color 0.2s;" onmouseenter="this.style.color='var(--primary)'" onmouseleave="this.style.color='var(--color-text-muted)'" title="Editar Taxa">
+                <i data-lucide="edit-2" style="width: 12px; height: 12px;"></i>
+              </button>
+            ` : ''}
+          </div>
+          <div style="font-size: 0.72rem; color: var(--color-text-muted);">
+            Repasse: <span id="repasse-container-${item.id.replace('#', '')}">${item.repasseMotoboy}</span>
+          </div>
+        </td>
+        <td style="text-align: right; white-space: nowrap;">${actionsHtml}</td>
+      </tr>
+    `;
+  });
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+  container.innerHTML = html;
+  lucide.createIcons();
+}
+
+window.handleCardDispatch = function(deliveryId, selectId) {
+  const select = document.getElementById(selectId);
   if (!select || !select.value) {
-    alert("Por favor, selecione um motoboy para enviar esta tele!");
+    alert("Selecione um motoboy disponível!");
     return;
   }
   dispatchDelivery(deliveryId, select.value);
+};
+
+window.handleTableDispatch = function(deliveryId, selectId) {
+  const select = document.getElementById(selectId);
+  if (!select || !select.value) return;
+  dispatchDelivery(deliveryId, select.value);
+};
+
+window.handleTableReassign = function(deliveryId, oldRiderName, newRiderId) {
+  handleTableReassignRider(deliveryId, oldRiderName, newRiderId);
+};
+
+window.handleTableReassignRider = async function(deliveryId, oldRiderName, newRiderId) {
+  const newRider = mockData.fleet.find(r => r.id === newRiderId);
+  if (!newRider) return;
+
+  const order = mockData.clientHistory.find(o => o.id === deliveryId);
+  if (!order) return;
+
+  if (confirm(`Deseja alterar o motoboy da tele ${deliveryId} de ${oldRiderName} para ${newRider.name}?`)) {
+    if (supabaseClient) {
+      // 1. Free old rider
+      const oldRider = mockData.fleet.find(r => r.name === oldRiderName);
+      if (oldRider) {
+        await supabaseClient
+          .from('fleet')
+          .update({ status: 'Disponível', status_class: 'status-success', delivery: 'Nenhuma' })
+          .eq('id', oldRider.id);
+      }
+
+      // 2. Assign new rider
+      await supabaseClient
+        .from('fleet')
+        .update({ status: order.status, status_class: order.statusClass, delivery: deliveryId })
+        .eq('id', newRiderId);
+
+      // 3. Update history
+      await supabaseClient
+        .from('client_history')
+        .update({ rider: newRider.name })
+        .eq('id', deliveryId);
+    }
+
+    await loadTelesManagement();
+    showToastNotification(`Tele ${deliveryId} reatribuída para ${newRider.name}.`);
+  } else {
+    renderTelesUnified();
+  }
+};
+
+window.handleCancelTeleClick = async function(deliveryId, riderName, type) {
+  if (confirm(`Deseja realmente cancelar a tele ${deliveryId}?`)) {
+    if (supabaseClient) {
+      if (type === 'pending') {
+        // Delete ONLY from pending_deliveries
+        await supabaseClient
+          .from('pending_deliveries')
+          .delete()
+          .eq('id', deliveryId);
+      } else if (type === 'active') {
+        // Delete ONLY from client_history
+        await supabaseClient
+          .from('client_history')
+          .delete()
+          .eq('id', deliveryId);
+
+        // Free rider if they were assigned
+        if (riderName && riderName !== 'Nenhum' && riderName !== 'Aguardando...') {
+          const rider = mockData.fleet.find(r => r.name === riderName);
+          if (rider) {
+            await supabaseClient
+              .from('fleet')
+              .update({ status: 'Disponível', status_class: 'status-success', delivery: 'Nenhuma' })
+              .eq('id', rider.id);
+          }
+        }
+      } else {
+        // Fallback for safety: match strictly by ID in both tables
+        await supabaseClient
+          .from('pending_deliveries')
+          .delete()
+          .eq('id', deliveryId);
+        await supabaseClient
+          .from('client_history')
+          .delete()
+          .eq('id', deliveryId);
+      }
+    }
+    await loadTelesManagement();
+    showToastNotification(`Tele ${deliveryId} cancelada com sucesso.`);
+  }
 };
 
 // Global handler for popup dispatch
@@ -2395,7 +3298,7 @@ async function dispatchDelivery(deliveryId, riderId) {
       dest_name: delivery.destName,
       address: delivery.address,
       rider: rider.name,
-      dist: delivery.dist,
+      dist: delivery.dist + '|' + (delivery.payment || 'Dinheiro'),
       price: delivery.price,
       date: 'Hoje, ' + new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       status: 'A caminho da coleta',
@@ -2403,12 +3306,21 @@ async function dispatchDelivery(deliveryId, riderId) {
       pickup_lat: delivery.pickup_lat,
       pickup_lng: delivery.pickup_lng,
       dest_lat: delivery.dest_lat,
-      dest_lng: delivery.dest_lng
+      dest_lng: delivery.dest_lng,
+      total_order_amount: delivery.total_order_amount || null
     };
 
-    const { error: historyError } = await supabaseClient
+    let { error: historyError } = await supabaseClient
       .from('client_history')
       .insert([newHistoryItem]);
+
+    if (historyError && historyError.code === '42703') {
+      delete newHistoryItem.total_order_amount;
+      const { error: retryError } = await supabaseClient
+        .from('client_history')
+        .insert([newHistoryItem]);
+      historyError = retryError;
+    }
 
     if (historyError) {
       console.error("Error inserting delivery history on Supabase:", historyError);
@@ -2435,8 +3347,7 @@ async function dispatchDelivery(deliveryId, riderId) {
   await fetchClientHistory();
 
   // Re-render components
-  renderPendingDeliveries();
-  renderActiveDeliveries();
+  renderTelesUnified();
   renderFleetTable();
   renderClientHistoryTable();
 
@@ -2451,57 +3362,7 @@ async function dispatchDelivery(deliveryId, riderId) {
   showToastNotification(`Tele ${deliveryId} enviada com sucesso para ${rider.name}!`);
 }
 
-// Render active deliveries (deliveries currently with riders)
-function renderActiveDeliveries() {
-  const container = document.getElementById('active-deliveries-container');
-  if (!container) return;
 
-  // Find active deliveries in mockData.clientHistory (status is not 'Entregue')
-  const activeOrders = mockData.clientHistory.filter(order => order.status !== 'Entregue');
-
-  const activeBadge = document.getElementById('active-count-badge');
-  if (activeBadge) activeBadge.innerText = activeOrders.length + ' em rota';
-
-  if (activeOrders.length === 0) {
-    container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 40px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
-        <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--color-text-muted); margin-bottom: 12px; display: inline-block;"></i>
-        <p style="font-weight: 600; color: var(--color-text);">Nenhuma tele em trânsito</p>
-        <p style="font-size: 0.9rem;">Todos os motoboys estão aguardando despacho.</p>
-      </div>
-    `;
-    lucide.createIcons();
-    return;
-  }
-
-  container.innerHTML = '';
-  activeOrders.forEach(order => {
-    const card = document.createElement('div');
-    card.className = 'active-card';
-    card.innerHTML = `
-      <div class="active-card-header">
-        <strong style="font-family: var(--font-display);">${order.id}</strong>
-        <span class="badge badge-success" style="background: var(--accent-cyan-glow); color: var(--accent-cyan); border-color: rgba(0, 174, 239, 0.2);">${order.rider}</span>
-      </div>
-      <div class="active-card-body">
-        <p><strong>Destino:</strong> ${order.destName}</p>
-        <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i data-lucide="map-pin" style="width: 12px; height: 12px;"></i> ${order.address}</p>
-        <p style="margin-top: 6px;"><strong>Distância:</strong> ${order.dist} • <strong>Taxa:</strong> ${order.price}</p>
-        <p style="margin-top: 4px;"><strong>Status:</strong> <span class="status-indicator ${order.statusClass}">${order.status}</span></p>
-      </div>
-      <div class="active-card-footer" style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
-        <button class="btn btn-secondary btn-sm" onclick="handleWithdrawClick('${order.id}', '${order.rider}')" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; height: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: var(--secondary); color: var(--error); border: 1px solid rgba(239, 68, 68, 0.2);">
-          <i data-lucide="rotate-ccw" style="width: 14px; height: 14px; color: var(--error);"></i> Retirar Tele
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="handleCompleteClick('${order.id}', '${order.rider}')" style="padding: 6px 12px; font-size: 0.8rem; border-radius: 4px; height: 30px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: var(--secondary); color: var(--color-text); border: 1px solid var(--border-color);">
-          <i data-lucide="check-circle" style="width: 14px; height: 14px; color: var(--success);"></i> Concluir Entrega
-        </button>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-  lucide.createIcons();
-}
 
 function renderClientPendingDeliveries() {
   const container = document.getElementById('client-pending-deliveries-container');
@@ -2580,7 +3441,7 @@ function renderClientActiveDeliveries() {
       <div class="active-card-body">
         <p><strong>Destino:</strong> ${escapeHtml(order.destName)}</p>
         <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i data-lucide="map-pin" style="width: 12px; height: 12px;"></i> ${escapeHtml(order.address)}</p>
-        <p style="margin-top: 6px;"><strong>Distância:</strong> ${escapeHtml(order.dist)} • <strong>Taxa:</strong> ${escapeHtml(order.price)}</p>
+        <p style="margin-top: 6px;"><strong>Distância:</strong> ${escapeHtml((order.dist || '').split('|')[0])} • <strong>Taxa:</strong> ${escapeHtml(order.price)}</p>
         <p style="margin-top: 4px;"><strong>Status:</strong> <span class="status-indicator ${escapeHtml(order.statusClass)}">${escapeHtml(order.status)}</span></p>
       </div>
     `;
@@ -2622,6 +3483,12 @@ async function completeDelivery(deliveryId, riderName) {
       alert("Erro ao liberar o motoboy no Supabase.");
       return;
     }
+
+    // Atomic cleanup of pending_deliveries to prevent duplication
+    await supabaseClient
+      .from('pending_deliveries')
+      .delete()
+      .eq('id', deliveryId);
   }
 
   // Refresh all state arrays from Supabase
@@ -2630,8 +3497,7 @@ async function completeDelivery(deliveryId, riderName) {
   await fetchClientHistory();
 
   // Re-render components
-  renderPendingDeliveries();
-  renderActiveDeliveries();
+  renderTelesUnified();
   renderFleetTable();
   renderClientHistoryTable();
 
@@ -2800,14 +3666,16 @@ async function removeTeleFromRider(deliveryId, riderId) {
 
   if (!confirm(`Remover a tele ${deliveryId} de ${rider.name} e devolver para pendentes?`)) return;
 
+  const cleanDist = order.dist.includes('|') ? order.dist.split('|')[0] : order.dist;
+  const paymentMethod = order.dist.includes('|') ? order.dist.split('|')[1] : 'A combinar';
   const pendingPayload = {
     id: order.id,
     client: order.client || 'Parceiro Garra',
     dest_name: order.destName || 'Cliente informado',
     address: order.address,
-    dist: order.dist,
+    dist: cleanDist,
     price: order.price,
-    payment: 'A combinar',
+    payment: paymentMethod,
     cargo: 'Pedido'
   };
 
@@ -2841,8 +3709,7 @@ async function removeTeleFromRider(deliveryId, riderId) {
   await fetchPendingDeliveries();
   await fetchFleet();
   await fetchClientHistory();
-  renderPendingDeliveries();
-  renderActiveDeliveries();
+  renderTelesUnified();
   renderFleetTable();
   renderRiderPayments();
 
@@ -4167,8 +5034,8 @@ function subscribeDashboardRealtime() {
         updateOwnerDashboardOverview();
 
         if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
-          const newBat = parseInt(payload.new.battery) || 100;
-          const oldBat = parseInt(payload.old?.battery) || 100;
+          const newBat = parseInt(payload.new.battery_level != null ? payload.new.battery_level : payload.new.battery) || 100;
+          const oldBat = parseInt(payload.old?.battery_level != null ? payload.old.battery_level : payload.old?.battery) || 100;
           if (newBat < 20 && oldBat >= 20) {
             addBellNotification(`<strong>${escapeHtml(payload.new.name)}</strong> está com bateria abaixo de 20% (${newBat}%)`, 'alert');
           }
@@ -4181,13 +5048,42 @@ function subscribeDashboardRealtime() {
       }, async (payload) => {
         console.log('Realtime pending deliveries update:', payload);
         await fetchPendingDeliveries();
-        renderPendingDeliveries();
+        renderTelesUnified();
         if (ownerFleetMap) {
           renderMapMarkers(ownerFleetCenterCoords);
         }
 
         if (payload.eventType === 'INSERT') {
           addBellNotification(`<strong>${escapeHtml(payload.new.client || 'Estabelecimento')}</strong> solicitou novo motoboy`, 'store');
+
+          // Geocoder Recalibration Shield for API orders (99Food / iFood)
+          const isIntegration = payload.new.client === '99Food' || payload.new.client === 'iFood' || (payload.new.payment && (payload.new.payment.toLowerCase().includes('ifood') || payload.new.payment.toLowerCase().includes('99food')));
+          if (isIntegration) {
+            const lat = parseFloat(payload.new.dest_lat);
+            const lng = parseFloat(payload.new.dest_lng);
+            // Check if coordinates are close to the generic city center or missing
+            const isGeneric = isNaN(lat) || isNaN(lng) || (Math.abs(lat - (-29.8378)) < 0.005 && Math.abs(lng - (-51.1444)) < 0.005);
+            if (isGeneric && window.google && google.maps && google.maps.Geocoder) {
+              console.log("Realtime Geocoder Shield: Coordenadas genéricas/ausentes detectadas. Iniciando recalibração para o endereço:", payload.new.address);
+              const geocoder = new google.maps.Geocoder();
+              geocoder.geocode({ address: payload.new.address }, async (results, status) => {
+                if (status === 'OK' && results[0]) {
+                  const loc = results[0].geometry.location;
+                  const newLat = loc.lat();
+                  const newLng = loc.lng();
+                  console.log(`Realtime Geocoder Shield: Calibrado com sucesso! Atualizando Supabase para: ${newLat}, ${newLng}`);
+                  if (supabaseClient) {
+                    await supabaseClient
+                      .from('pending_deliveries')
+                      .update({ dest_lat: newLat, dest_lng: newLng })
+                      .eq('id', payload.new.id);
+                  }
+                } else {
+                  console.warn("Realtime Geocoder Shield: Falha ao geocodificar endereço.");
+                }
+              });
+            }
+          }
         }
       })
       .on('postgres_changes', {
@@ -4197,7 +5093,7 @@ function subscribeDashboardRealtime() {
       }, async (payload) => {
         console.log('Realtime client history update:', payload);
         await fetchClientHistory();
-        renderActiveDeliveries();
+        renderTelesUnified();
         renderClientHistoryTable();
         updateOwnerDashboardOverview();
         if (document.getElementById('tab-owner-overview')?.classList.contains('active')) {
@@ -4269,16 +5165,96 @@ function subscribeDashboardRealtime() {
 
 // ─── REQUEST DELIVERY MAP ─────────────────────────────────────────────────────
 
-let requestDeliveryMap = null;
-let requestDeliveryMarker = null;
-let restaurantMarker = null;
-let requestDeliveryRouteLine = null;
-let requestDeliveryCenterCoords = [-29.8378, -51.1444]; // Fallback coordinates (Sapucaia do Sul)
+function loadGoogleMapsAPI(callback) {
+  if (window.google && window.google.maps) {
+    if (callback) callback();
+    return;
+  }
+  const key = 'AIzaSyBkwbG65d17USn4PLxNzyPN7QODNaWWZ0k';
+  const script = document.createElement('script');
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=geometry,places`;
+  script.async = true;
+  script.defer = true;
+  script.onload = () => {
+    class CustomHTMLMapMarker extends google.maps.OverlayView {
+      constructor(latlng, map, html, onClick) {
+        super();
+        this.latlng = latlng;
+        this.html = html;
+        this.onClick = onClick;
+        
+        this.div = document.createElement('div');
+        this.div.style.position = 'absolute';
+        this.div.style.cursor = 'pointer';
+        this.div.innerHTML = html;
+        
+        if (onClick) {
+          this.div.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onClick(e);
+          });
+        }
+        this.setMap(map);
+      }
+      onAdd() {
+        const pane = this.getPanes().overlayMouseTarget;
+        pane.appendChild(this.div);
+      }
+      draw() {
+        const projection = this.getProjection();
+        if (!projection) return;
+        const point = projection.fromLatLngToDivPixel(this.latlng);
+        if (point) {
+          this.div.style.left = (point.x - 10) + 'px';
+          this.div.style.top = (point.y - 10) + 'px';
+        }
+      }
+      onRemove() {
+        if (this.div && this.div.parentNode) {
+          this.div.parentNode.removeChild(this.div);
+        }
+      }
+      setLatLng(latlng) {
+        this.latlng = latlng;
+        this.draw();
+      }
+      getLatLng() {
+        return this.latlng;
+      }
+      getPosition() {
+        return this.latlng;
+      }
+    }
+    window.CustomHTMLMapMarker = CustomHTMLMapMarker;
+    if (callback) callback();
+  };
+  script.onerror = () => {
+    console.error("Erro ao carregar o Google Maps.");
+  };
+  document.head.appendChild(script);
+}
+
+let requestMaps = {
+  client: {
+    map: null,
+    marker: null,
+    restaurantMarker: null,
+    centerCoords: [-29.842173, -51.126764],
+    destCoords: null
+  },
+  manual: {
+    map: null,
+    marker: null,
+    restaurantMarker: null,
+    centerCoords: [-29.842173, -51.126764],
+    destCoords: null
+  }
+};
 let restaurantCity = 'Sapucaia do Sul';
 
-function fetchRestaurantCity() {
-  const lat = requestDeliveryCenterCoords[0];
-  const lng = requestDeliveryCenterCoords[1];
+function fetchRestaurantCity(type = 'client') {
+  const lat = requestMaps[type].centerCoords[0];
+  const lng = requestMaps[type].centerCoords[1];
   fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxgl.accessToken}&limit=1`)
     .then(res => res.json())
     .then(data => {
@@ -4358,237 +5334,317 @@ function safeRemoveRouteLayer(mapInstance, sourceId, layerId) {
   }
 }
 
-function initRequestDeliveryMap() {
-  const mapContainer = document.getElementById('request-delivery-map');
+function initRequestDeliveryMap(type = 'client') {
+  const mapContainer = document.getElementById(`${type}-request-delivery-map`);
   if (!mapContainer) return;
 
-  // If map is already initialized, just resize
-  if (requestDeliveryMap) {
-    setTimeout(() => {
-      requestDeliveryMap.resize();
-    }, 100);
-    return;
-  }
-
-  // Create map instance
-  requestDeliveryMap = new mapboxgl.Map({
-    container: 'request-delivery-map',
-    style: 'mapbox://styles/mapbox/dark-v11',
-    center: [requestDeliveryCenterCoords[1], requestDeliveryCenterCoords[0]], // [lng, lat]
-    zoom: 14
-  });
-
-  // Initialize restaurant marker HTML
-  const el = document.createElement('div');
-  el.className = 'custom-map-marker central-marker';
-  el.style.backgroundColor = '#ffffff';
-  el.style.boxShadow = '0 0 15px #ffffff';
-  el.style.borderColor = 'var(--primary)';
-  el.innerHTML = `
-    <div class="marker-pulse" style="border-color: var(--primary); animation-duration: 2.5s;"></div>
-    <i class="marker-icon-dot" style="background-color: var(--primary); width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
-  `;
-
-  // Try to fetch user geolocation to center map on the client's city
-  fetchRestaurantCity(); // call initially with fallback coords
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        requestDeliveryCenterCoords = [position.coords.latitude, position.coords.longitude];
-        fetchRestaurantCity(); // update city based on actual geolocation coordinates
-        requestDeliveryMap.setCenter([requestDeliveryCenterCoords[1], requestDeliveryCenterCoords[0]]);
-        
-        const popup = new mapboxgl.Popup({ offset: 15 }).setHTML('<strong style="color:var(--color-text);">Seu Comércio</strong>');
-        restaurantMarker = new mapboxgl.Marker(el)
-          .setLngLat([requestDeliveryCenterCoords[1], requestDeliveryCenterCoords[0]])
-          .setPopup(popup)
-          .addTo(requestDeliveryMap);
-        restaurantMarker.togglePopup();
-      },
-      (error) => {
-        console.warn("Geolocation failed or denied. Using fallback coordinates.", error);
-        const popup = new mapboxgl.Popup({ offset: 15 }).setHTML('<strong style="color:var(--color-text);">Seu Comércio</strong>');
-        restaurantMarker = new mapboxgl.Marker(el)
-          .setLngLat([requestDeliveryCenterCoords[1], requestDeliveryCenterCoords[0]])
-          .setPopup(popup)
-          .addTo(requestDeliveryMap);
-        restaurantMarker.togglePopup();
+  if (requestMaps[type].map) {
+    if (type === 'manual') {
+      // Force clean reload for manual requests to avoid canvas/listener duplication
+      if (requestMaps[type].marker && requestMaps[type].marker.setMap) {
+        requestMaps[type].marker.setMap(null);
       }
-    );
-  } else {
-    const popup = new mapboxgl.Popup({ offset: 15 }).setHTML('<strong style="color:var(--color-text);">Seu Comércio</strong>');
-    restaurantMarker = new mapboxgl.Marker(el)
-      .setLngLat([requestDeliveryCenterCoords[1], requestDeliveryCenterCoords[0]])
-      .setPopup(popup)
-      .addTo(requestDeliveryMap);
-    restaurantMarker.togglePopup();
+      requestMaps[type].marker = null;
+
+      if (requestMaps[type].restaurantMarker && requestMaps[type].restaurantMarker.setMap) {
+        requestMaps[type].restaurantMarker.setMap(null);
+      }
+      requestMaps[type].restaurantMarker = null;
+
+      if (requestMaps[type].polyline && requestMaps[type].polyline.setMap) {
+        requestMaps[type].polyline.setMap(null);
+      }
+      requestMaps[type].polyline = null;
+
+      requestMaps[type].map = null;
+      mapContainer.innerHTML = '';
+    } else {
+      if (window.google && google.maps) {
+        google.maps.event.trigger(requestMaps[type].map, 'resize');
+      }
+      return;
+    }
   }
+  
+  loadGoogleMapsAPI(() => {
+    const darkMapStyle = [
+      { elementType: "geometry", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#33333d" }] },
+      { featureType: "poi", stylers: [{ visibility: "off" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d2d38" }] },
+      { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a22" }] },
+      { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "transit", stylers: [{ visibility: "off" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d0d11" }] }
+    ];
+    
+    const latLng = new google.maps.LatLng(requestMaps[type].centerCoords[0], requestMaps[type].centerCoords[1]);
+    requestMaps[type].map = new google.maps.Map(mapContainer, {
+      center: latLng,
+      zoom: 14,
+      styles: darkMapStyle,
+      disableDefaultUI: true,
+      zoomControl: true
+    });
 
-  // Handle click on map to set delivery destination
-  requestDeliveryMap.on('click', (e) => {
-    const lngLat = e.lngLat;
-    updateRequestDeliveryDestination(lngLat.lat, lngLat.lng);
+    const restaurantIconHtml = `
+      <div class="custom-map-marker central-marker" style="background-color: #ffffff; box-shadow: 0 0 15px #ffffff; border-color: var(--primary); width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative;">
+        <div class="marker-pulse" style="border-color: var(--primary); animation-duration: 2.5s; position: absolute; top: -5px; left: -5px; width: 24px; height: 24px; border: 2px solid var(--primary); border-radius: 50%; animation: pulse-dot-anim 2.5s infinite;"></div>
+        <i class="marker-icon-dot" style="background-color: var(--primary); width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
+      </div>
+    `;
+
+    const setRestaurantMarker = (coords) => {
+      const center = new google.maps.LatLng(coords[0], coords[1]);
+      requestMaps[type].restaurantMarker = new window.CustomHTMLMapMarker(center, requestMaps[type].map, restaurantIconHtml, () => {
+        const info = new google.maps.InfoWindow({ content: '<strong style="color:var(--color-text);">Seu Comércio</strong>' });
+        info.open(requestMaps[type].map, requestMaps[type].restaurantMarker);
+      });
+    };
+
+    fetchRestaurantCity(type);
+    if (type !== 'manual' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          requestMaps[type].centerCoords = [position.coords.latitude, position.coords.longitude];
+          fetchRestaurantCity(type);
+          const newCenter = new google.maps.LatLng(requestMaps[type].centerCoords[0], requestMaps[type].centerCoords[1]);
+          requestMaps[type].map.setCenter(newCenter);
+          setRestaurantMarker(requestMaps[type].centerCoords);
+        },
+        (error) => {
+          console.warn("Geolocation failed. Using fallback.", error);
+          setRestaurantMarker(requestMaps[type].centerCoords);
+        }
+      );
+    } else {
+      // For manual request (or if geolocation is unavailable/fails), lock to the physical base coordinates [-29.842173, -51.126764]
+      const fixedCenter = new google.maps.LatLng(requestMaps[type].centerCoords[0], requestMaps[type].centerCoords[1]);
+      requestMaps[type].map.setCenter(fixedCenter);
+      setRestaurantMarker(requestMaps[type].centerCoords);
+    }
+
+    requestMaps[type].map.addListener('click', (e) => {
+      updateRequestDeliveryDestination(e.latLng.lat(), e.latLng.lng(), false, true, type);
+    });
+
+    setupAddressGeocodingListener(type);
   });
-
-  // Setup direct geocoding input listener (with a debounce)
-  setupAddressGeocodingListener();
 }
 
-function updateRequestDeliveryDestination(lat, lng, shouldCenter = false, shouldReverseGeocode = true) {
-  if (!requestDeliveryMap) return;
+function updateRequestDeliveryDestination(lat, lng, shouldCenter = false, shouldReverseGeocode = true, type = 'client') {
+  if (!requestMaps[type].map) return;
 
-  // Sync coords to global state so calculations are always accurate
-  window.manualDestCoords = { lat, lng };
+  requestMaps[type].destCoords = { lat, lng };
 
-  if (requestDeliveryMarker) {
-    requestDeliveryMarker.setLngLat([lng, lat]);
+  const destLatLng = new google.maps.LatLng(lat, lng);
+
+  if (requestMaps[type].marker) {
+    requestMaps[type].marker.setPosition(destLatLng);
   } else {
-    const el = document.createElement('div');
-    el.className = 'custom-map-marker';
-    el.style.backgroundColor = '#ffb700';
-    el.style.borderColor = '#ffffff';
-    el.style.width = '16px';
-    el.style.height = '16px';
-    el.style.borderRadius = '50%';
-    el.style.boxShadow = '0 0 10px #ffb700';
+    requestMaps[type].marker = new google.maps.Marker({
+      position: destLatLng,
+      map: requestMaps[type].map,
+      draggable: true,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        fillColor: '#ffb700',
+        fillOpacity: 1,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+        scale: 8
+      }
+    });
 
-    const popup = new mapboxgl.Popup({ offset: 15 }).setHTML('<strong style="color:var(--color-text);">Destino de Entrega</strong><br><span style="font-size:0.75rem;color:var(--color-text-muted);">Arraste o pin até a casa exata se necessário</span>');
-
-    requestDeliveryMarker = new mapboxgl.Marker(el, { draggable: true })
-      .setLngLat([lng, lat])
-      .setPopup(popup)
-      .addTo(requestDeliveryMap);
-    
-    requestDeliveryMarker.togglePopup();
-    
-    // Listen to marker drag event - do not reverse geocode to avoid overwriting typed text/house numbers
-    requestDeliveryMarker.on('dragend', () => {
-      const lngLat = requestDeliveryMarker.getLngLat();
-      updateRequestDeliveryDestination(lngLat.lat, lngLat.lng, false, false);
+    requestMaps[type].marker.addListener('dragend', () => {
+      const pos = requestMaps[type].marker.getPosition();
+      updateRequestDeliveryDestination(pos.lat(), pos.lng(), false, false, type);
     });
   }
 
   if (shouldCenter) {
-    requestDeliveryMap.setCenter([lng, lat]);
-    requestDeliveryMap.setZoom(15);
+    requestMaps[type].map.setCenter(destLatLng);
+    requestMaps[type].map.setZoom(15);
   }
 
-  // Update polyline route
-  const startCoords = restaurantMarker ? [restaurantMarker.getLngLat().lat, restaurantMarker.getLngLat().lng] : requestDeliveryCenterCoords;
-  safeAddRouteLayer(requestDeliveryMap, 'route', 'route', startCoords, [lat, lng], '#ffb700');
+  const startLatLng = requestMaps[type].restaurantMarker ? requestMaps[type].restaurantMarker.getPosition() : new google.maps.LatLng(requestMaps[type].centerCoords[0], requestMaps[type].centerCoords[1]);
+  const routePath = [startLatLng, destLatLng];
 
-  // Perform reverse geocoding only if requested
-  if (shouldReverseGeocode) {
-    fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxgl.accessToken}&limit=1`)
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.features && data.features.length > 0) {
-          let addressStr = data.features[0].place_name;
-          document.getElementById('delivery-address').value = addressStr;
-          calculateEstimate();
-        } else {
-          document.getElementById('delivery-address').value = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
-          calculateEstimate();
-        }
-      })
-      .catch(err => {
-        console.error("Reverse geocoding error:", err);
-        document.getElementById('delivery-address').value = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
-        calculateEstimate();
-      });
+  if (requestMaps[type].polyline) {
+    requestMaps[type].polyline.setPath(routePath);
   } else {
-    calculateEstimate(); // Recalculate instantly based on new coordinates without changing typed input
+    requestMaps[type].polyline = new google.maps.Polyline({
+      path: routePath,
+      map: requestMaps[type].map,
+      strokeColor: '#ffb700',
+      strokeOpacity: 0.8,
+      strokeWeight: 3,
+      icons: [{
+        icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 2 },
+        offset: '0',
+        repeat: '20px'
+      }]
+    });
   }
-}
 
-let geocodeDebounceTimeout = null;
-function setupAddressGeocodingListener() {
-  const addressInput = document.getElementById('delivery-address');
-  const suggestionsContainer = document.getElementById('address-suggestions');
-  if (!addressInput || !suggestionsContainer) return;
-
-  addressInput.addEventListener('input', () => {
-    const val = addressInput.value.trim();
-    if (val.length < 3) {
-      suggestionsContainer.innerHTML = '';
-      suggestionsContainer.classList.add('hidden');
-      window.manualDestCoords = null;
-      if (requestDeliveryMarker) {
-        requestDeliveryMarker.remove();
-        requestDeliveryMarker = null;
-      }
-      safeRemoveRouteLayer(requestDeliveryMap, 'route', 'route');
-      return;
-    }
-
-    clearTimeout(geocodeDebounceTimeout);
-    geocodeDebounceTimeout = setTimeout(() => {
-      const lowercaseVal = val.toLowerCase();
-      const hasCity = (mockData.cities || []).some(city => lowercaseVal.includes(city.nome.toLowerCase()));
-      const hasRS = lowercaseVal.includes(', rs') || lowercaseVal.includes('rio grande do sul');
-      
-      let finalQuery = val;
-      if (!hasCity && !hasRS) {
-        finalQuery += `, ${restaurantCity}`;
-      }
-      finalQuery += ', Rio Grande do Sul';
-
-      // Search query restricted to Rio Grande do Sul, Brazil using Mapbox Geocoding API
-      const queryUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(finalQuery)}.json?access_token=${mapboxgl.accessToken}&country=br&bbox=-57.64,-33.75,-49.69,-27.08&limit=5`;
-      
-      fetch(queryUrl)
+  if (shouldReverseGeocode) {
+    if (window.google && google.maps && google.maps.Geocoder) {
+      const geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          document.getElementById(`${type}-delivery-address`).value = results[0].formatted_address;
+          calculateEstimate(type);
+        } else {
+          document.getElementById(`${type}-delivery-address`).value = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+          calculateEstimate(type);
+        }
+      });
+    } else {
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
         .then(res => res.json())
-        .then(resData => {
-          suggestionsContainer.innerHTML = '';
-          const features = resData.features || [];
-          if (features.length > 0) {
-            // Automatically update coordinates and marker to the top match in real-time as they type
-            const topMatch = features[0];
-            const topLng = topMatch.center[0];
-            const topLat = topMatch.center[1];
-            window.manualDestCoords = { lat: topLat, lng: topLng };
-            updateRequestDeliveryDestination(topLat, topLng, false, false); // shouldCenter = false, shouldReverseGeocode = false
-            calculateEstimate(); // Recalculate real distance estimate instantly
-
-            features.forEach(item => {
-              const div = document.createElement('div');
-              div.className = 'autocomplete-item';
-              div.innerText = item.place_name;
-              
-              div.addEventListener('click', () => {
-                const lng = item.center[0];
-                const lat = item.center[1];
-                
-                addressInput.value = item.place_name;
-                suggestionsContainer.classList.add('hidden');
-                
-                window.manualDestCoords = { lat, lng };
-
-                // Update map marker and polyline (centering but not reverse geocoding)
-                updateRequestDeliveryDestination(lat, lng, true, false);
-                
-                // Recalculate estimated delivery fee based on selected address
-                calculateEstimate();
-              });
-              suggestionsContainer.appendChild(div);
-            });
-            suggestionsContainer.classList.remove('hidden');
+        .then(data => {
+          if (data && data.display_name) {
+            document.getElementById(`${type}-delivery-address`).value = data.display_name;
+            calculateEstimate(type);
           } else {
-            suggestionsContainer.classList.add('hidden');
+            document.getElementById(`${type}-delivery-address`).value = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+            calculateEstimate(type);
           }
         })
         .catch(err => {
-          console.error("Geocoding search error:", err);
+          console.error("Reverse geocoding error:", err);
+          document.getElementById(`${type}-delivery-address`).value = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+          calculateEstimate(type);
         });
-    }, 450); // 450ms debounce
+    }
+  } else {
+    calculateEstimate(type);
+  }
+}
+
+function setupAddressGeocodingListener(type = 'client') {
+  const addressInput = document.getElementById(`${type}-delivery-address`);
+  if (!addressInput) return;
+
+  if (!window.google || !google.maps || !google.maps.places) {
+    console.warn("Google Maps Places API is not loaded yet.");
+    return;
+  }
+
+  // Focus autocomplete bounds in region of base coordinates (approx 30km radius)
+  const centerCoords = requestMaps[type].centerCoords || [-29.8378, -51.1444];
+  const defaultBounds = {
+    north: centerCoords[0] + 0.3,
+    south: centerCoords[0] - 0.3,
+    east: centerCoords[1] + 0.3,
+    west: centerCoords[1] - 0.3
+  };
+
+  const options = {
+    bounds: defaultBounds,
+    strictBounds: true, // Strict to Rio Grande do Sul metropolitan area
+    componentRestrictions: { country: "br" },
+    fields: ["address_components", "geometry", "formatted_address"],
+    types: ["address"]
+  };
+
+  if (addressInput.dataset.autocompleteInitialized) return;
+  addressInput.dataset.autocompleteInitialized = "true";
+
+  const autocomplete = new google.maps.places.Autocomplete(addressInput, options);
+
+  autocomplete.addListener('place_changed', () => {
+    const place = autocomplete.getPlace();
+    
+    if (!place.geometry || !place.geometry.location) {
+      alert("Endereço não encontrado ou inválido. Selecione um endereço sugerido pela lista.");
+      return;
+    }
+
+    const hasStreetNumber = (place.address_components || []).some(component => 
+      component.types.includes("street_number")
+    );
+
+    if (!hasStreetNumber) {
+      alert("Atenção: Por favor, informe o número exato da casa/estabelecimento no endereço para garantir a entrega.");
+      addressInput.value = "";
+      
+      requestMaps[type].destCoords = null;
+      if (requestMaps[type].marker) {
+        requestMaps[type].marker.setMap(null);
+        requestMaps[type].marker = null;
+      }
+      if (requestMaps[type].polyline) {
+        requestMaps[type].polyline.setMap(null);
+        requestMaps[type].polyline = null;
+      }
+      
+      const estBox = document.getElementById(`${type}-estimate-box`);
+      if (estBox) estBox.classList.add('hidden');
+      return;
+    }
+
+    const lat = place.geometry.location.lat();
+    const lng = place.geometry.location.lng();
+
+    requestMaps[type].destCoords = { lat, lng };
+    addressInput.value = place.formatted_address;
+    addressInput.dataset.lastResolvedAddress = place.formatted_address;
+
+    updateRequestDeliveryDestination(lat, lng, true, false, type);
   });
 
-  // Hide suggestions when clicking outside
-  document.addEventListener('click', (e) => {
-    if (e.target !== addressInput && e.target !== suggestionsContainer && !suggestionsContainer.contains(e.target)) {
-      suggestionsContainer.classList.add('hidden');
+  // Intercept paste and blur events for direct geocoding calibration
+  const handleManualGeocode = () => {
+    const value = addressInput.value.trim();
+    if (!value) return;
+    if (addressInput.dataset.lastResolvedAddress === value) return;
+
+    if (window.google && google.maps && google.maps.Geocoder) {
+      console.log(`Pasted/Typed address detected. Geocoding: "${value}"...`);
+      const geocoder = new google.maps.Geocoder();
+      // Force Google Maps to search strictly within Rio Grande do Sul (RS), Brazil
+      geocoder.geocode({
+        address: value,
+        componentRestrictions: {
+          country: 'BR',
+          administrativeArea: 'RS'
+        }
+      }, (results, status) => {
+        if (status === 'OK' && results[0]) {
+          const place = results[0];
+          const hasStreetNumber = (place.address_components || []).some(component => 
+            component.types.includes("street_number")
+          );
+
+          if (!hasStreetNumber) {
+            console.warn("Geocoder: Resolved address has no street number.");
+            return;
+          }
+
+          const lat = place.geometry.location.lat();
+          const lng = place.geometry.location.lng();
+
+          requestMaps[type].destCoords = { lat, lng };
+          addressInput.value = place.formatted_address;
+          addressInput.dataset.lastResolvedAddress = place.formatted_address;
+          console.log(`Geocoder resolved: ${place.formatted_address} (${lat}, ${lng})`);
+
+          updateRequestDeliveryDestination(lat, lng, true, false, type);
+        } else {
+          console.error("Geocoder failed to resolve address:", status);
+        }
+      });
     }
+  };
+
+  addressInput.addEventListener('paste', () => {
+    setTimeout(handleManualGeocode, 100);
   });
+
+  addressInput.addEventListener('blur', handleManualGeocode);
 }
 // ─── REALTIME ORDER TRACKING ──────────────────────────────────────────────────
 
@@ -4680,65 +5736,90 @@ function initTrackingMap(pickupLat, pickupLng, destLat, destLng) {
   if (!mapContainer) return;
 
   if (trackingMapInstance) {
-    trackingMapInstance.remove();
+    const container = document.getElementById('tracking-map');
+    if (container) container.innerHTML = '';
     trackingMapInstance = null;
   }
 
-  trackingMapInstance = new mapboxgl.Map({
-    container: 'tracking-map',
-    style: 'mapbox://styles/mapbox/dark-v11',
-    center: [pickupLng, pickupLat], // [lng, lat]
-    zoom: 14
+  loadGoogleMapsAPI(() => {
+    const darkMapStyle = [
+      { elementType: "geometry", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#33333d" }] },
+      { featureType: "poi", stylers: [{ visibility: "off" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d2d38" }] },
+      { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a22" }] },
+      { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "transit", stylers: [{ visibility: "off" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d0d11" }] }
+    ];
+
+    const centerLatLng = new google.maps.LatLng(pickupLat, pickupLng);
+    trackingMapInstance = new google.maps.Map(mapContainer, {
+      center: centerLatLng,
+      zoom: 14,
+      styles: darkMapStyle,
+      disableDefaultUI: true,
+      zoomControl: true
+    });
+
+    const pickupIconHtml = `
+      <div class="custom-map-marker central-marker" style="background-color: #ffffff; box-shadow: 0 0 15px #ffffff; border-color: var(--primary); width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative;">
+        <div class="marker-pulse" style="border-color: var(--primary); animation-duration: 2.5s; position: absolute; top: -5px; left: -5px; width: 24px; height: 24px; border: 2px solid var(--primary); border-radius: 50%; animation: pulse-dot-anim 2.5s infinite;"></div>
+        <i class="marker-icon-dot" style="background-color: var(--primary); width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
+      </div>
+    `;
+
+    const destIconHtml = `
+      <div class="custom-map-marker" style="background-color: #ffb700; border-color: #ffffff; width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 10px #ffb700; cursor: pointer;">
+      </div>
+    `;
+
+    const pickupLatLng = new google.maps.LatLng(pickupLat, pickupLng);
+    const destLatLng = new google.maps.LatLng(destLat, destLng);
+
+    trackingPickupMarker = new window.CustomHTMLMapMarker(pickupLatLng, trackingMapInstance, pickupIconHtml, () => {
+      const info = new google.maps.InfoWindow({ content: '<strong style="color:var(--color-text);">Origem (Comércio)</strong>' });
+      info.open(trackingMapInstance, trackingPickupMarker);
+    });
+
+    trackingDestMarker = new window.CustomHTMLMapMarker(destLatLng, trackingMapInstance, destIconHtml, () => {
+      const info = new google.maps.InfoWindow({ content: '<strong style="color:var(--color-text);">Destino (Cliente)</strong>' });
+      info.open(trackingMapInstance, trackingDestMarker);
+    });
+
+    const routePath = [pickupLatLng, destLatLng];
+    trackingRouteLine = new google.maps.Polyline({
+      path: routePath,
+      map: trackingMapInstance,
+      strokeColor: '#ffb700',
+      strokeOpacity: 0.8,
+      strokeWeight: 3,
+      icons: [{
+        icon: { path: 'M 0,-1 0,1', strokeOpacity: 1, scale: 2 },
+        offset: '0',
+        repeat: '20px'
+      }]
+    });
+
+    const bounds = new google.maps.LatLngBounds();
+    bounds.extend(pickupLatLng);
+    bounds.extend(destLatLng);
+    trackingMapInstance.fitBounds(bounds, { padding: { top: 50, bottom: 50, left: 50, right: 50 } });
+
+    trackingRiderMarker = null;
   });
-
-  const pickupEl = document.createElement('div');
-  pickupEl.className = 'custom-map-marker central-marker';
-  pickupEl.style.backgroundColor = '#ffffff';
-  pickupEl.style.boxShadow = '0 0 15px #ffffff';
-  pickupEl.style.borderColor = 'var(--primary)';
-  pickupEl.innerHTML = `
-    <div class="marker-pulse" style="border-color: var(--primary); animation-duration: 2.5s;"></div>
-    <i class="marker-icon-dot" style="background-color: var(--primary); width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
-  `;
-
-  const destEl = document.createElement('div');
-  destEl.className = 'custom-map-marker';
-  destEl.style.backgroundColor = '#ffb700';
-  destEl.style.borderColor = '#ffffff';
-  destEl.style.width = '16px';
-  destEl.style.height = '16px';
-  destEl.style.borderRadius = '50%';
-  destEl.style.boxShadow = '0 0 10px #ffb700';
-
-  trackingPickupMarker = new mapboxgl.Marker(pickupEl)
-    .setLngLat([pickupLng, pickupLat])
-    .setPopup(new mapboxgl.Popup({ offset: 15 }).setHTML('<strong style="color:var(--color-text);">Origem (Comércio)</strong>'))
-    .addTo(trackingMapInstance);
-
-  trackingDestMarker = new mapboxgl.Marker(destEl)
-    .setLngLat([destLng, destLat])
-    .setPopup(new mapboxgl.Popup({ offset: 15 }).setHTML('<strong style="color:var(--color-text);">Destino (Cliente)</strong>'))
-    .addTo(trackingMapInstance);
-
-  safeAddRouteLayer(trackingMapInstance, 'tracking-route', 'tracking-route', [pickupLat, pickupLng], [destLat, destLng], '#ffb700');
-
-  const bounds = new mapboxgl.LngLatBounds()
-    .extend([pickupLng, pickupLat])
-    .extend([destLng, destLat]);
-
-  trackingMapInstance.fitBounds(bounds, { padding: 50, maxZoom: 16 });
-
-  trackingRiderMarker = null;
 }
 
 function updateRiderMarker(lat, lng, riderName) {
   if (!trackingMapInstance || isNaN(lat) || isNaN(lng)) return;
 
+  const riderLatLng = new google.maps.LatLng(lat, lng);
   const popupContent = `<strong style="color:var(--color-text);">${escapeHtml(riderName)}</strong><br>Localização em tempo real`;
 
   if (trackingRiderMarker) {
-    trackingRiderMarker.setLngLat([lng, lat]);
-    trackingRiderMarker.getPopup().setHTML(popupContent);
+    trackingRiderMarker.setLatLng(riderLatLng);
   } else {
     const el = document.createElement('div');
     el.style.width = '24px';
@@ -4750,19 +5831,14 @@ function updateRiderMarker(lat, lng, riderName) {
     el.style.display = 'flex';
     el.style.alignItems = 'center';
     el.style.justifyContent = 'center';
+    el.style.cursor = 'pointer';
     el.innerHTML = `<i data-lucide="bike" style="width:12px;height:12px;color:#fff;"></i>`;
 
-    const popup = new mapboxgl.Popup({ offset: 15 }).setHTML(popupContent);
-    popup.on('open', () => {
-      if (window.lucide) lucide.createIcons();
+    trackingRiderMarker = new window.CustomHTMLMapMarker(riderLatLng, trackingMapInstance, el.outerHTML, () => {
+      const info = new google.maps.InfoWindow({ content: popupContent });
+      info.open(trackingMapInstance, trackingRiderMarker);
     });
-
-    trackingRiderMarker = new mapboxgl.Marker(el)
-      .setLngLat([lng, lat])
-      .setPopup(popup)
-      .addTo(trackingMapInstance);
   }
-  if (window.lucide) lucide.createIcons();
 }
 
 function updateStepperState(status) {
@@ -4886,8 +5962,8 @@ function renderOwnerFinancials() {
   const startDateVal = document.getElementById('finance-start-date').value;
   const endDateVal = document.getElementById('finance-end-date').value;
   
-  let start = startDateVal ? new Date(startDateVal) : null;
-  let end = endDateVal ? new Date(endDateVal) : null;
+  let start = startDateVal ? parseLocalDate(startDateVal) : null;
+  let end = endDateVal ? parseLocalDate(endDateVal) : null;
   
   // Set start of day and end of day
   if (start) start.setHours(0, 0, 0, 0);
@@ -4900,7 +5976,7 @@ function renderOwnerFinancials() {
     
     if (!start && !end) return true;
     
-    const orderDate = parseOrderDate(order.date);
+    const orderDate = parseOrderDate(order.date, order.created_at);
     if (start && orderDate < start) return false;
     if (end && orderDate > end) return false;
     return true;
@@ -5084,8 +6160,8 @@ async function updateRiderPaymentStatus(riderName, newStatus) {
   const startDateVal = document.getElementById('rider-payment-start-date').value;
   const endDateVal = document.getElementById('rider-payment-end-date').value;
 
-  let start = startDateVal ? new Date(startDateVal) : null;
-  let end = endDateVal ? new Date(endDateVal) : null;
+  let start = startDateVal ? parseLocalDate(startDateVal) : null;
+  let end = endDateVal ? parseLocalDate(endDateVal) : null;
 
   if (start) start.setHours(0, 0, 0, 0);
   if (end) end.setHours(23, 59, 59, 999);
@@ -5098,7 +6174,7 @@ async function updateRiderPaymentStatus(riderName, newStatus) {
       if (order.rider !== riderName) return false;
 
       if (start || end) {
-        const orderDate = parseOrderDate(order.date);
+        const orderDate = parseOrderDate(order.date, order.created_at);
         if (start && orderDate < start) return false;
         if (end && orderDate > end) return false;
       }
@@ -5266,8 +6342,8 @@ function renderRiderConsumables() {
   const categoryFilterEl = document.getElementById('consumable-category-filter');
   const categoryFilterVal = categoryFilterEl ? categoryFilterEl.value : '';
 
-  let start = startDateVal ? new Date(startDateVal) : null;
-  let end = endDateVal ? new Date(endDateVal) : null;
+  let start = startDateVal ? parseLocalDate(startDateVal) : null;
+  let end = endDateVal ? parseLocalDate(endDateVal) : null;
 
   if (start) start.setHours(0, 0, 0, 0);
   if (end) end.setHours(23, 59, 59, 999);
@@ -5701,32 +6777,46 @@ async function deleteCity(id) {
 
 // ─── MANUAL REQUEST MODAL HELPERS ───────────────────────────────────────────
 
-function showRequestDeliveryModal() {
+async function showRequestDeliveryModal() {
   // Clear coordinates and reset form state
-  window.manualDestCoords = null;
+  requestMaps.manual.destCoords = null;
   const form = document.getElementById('request-delivery-form');
   if (form) form.reset();
   
-  const estimateBox = document.getElementById('estimate-box');
+  const estimateBox = document.getElementById('manual-estimate-box');
   if (estimateBox) estimateBox.classList.add('hidden');
   
-  const changeGroup = document.getElementById('change-amount-group');
+  const changeGroup = document.getElementById('manual-change-amount-group');
   if (changeGroup) changeGroup.classList.add('hidden');
   
-  // Clear map markers from previous session
-  if (requestDeliveryMap) {
-    if (requestDeliveryMarker) {
-      requestDeliveryMarker.remove();
-      requestDeliveryMarker = null;
+  // Clear map markers from previous session safely using Google Maps APIs
+  if (requestMaps.manual.map) {
+    if (requestMaps.manual.marker && requestMaps.manual.marker.setMap) {
+      requestMaps.manual.marker.setMap(null);
     }
-    safeRemoveRouteLayer(requestDeliveryMap, 'route', 'route');
+    requestMaps.manual.marker = null;
+
+    if (requestMaps.manual.restaurantMarker && requestMaps.manual.restaurantMarker.setMap) {
+      requestMaps.manual.restaurantMarker.setMap(null);
+    }
+    requestMaps.manual.restaurantMarker = null;
+
+    if (requestMaps.manual.polyline && requestMaps.manual.polyline.setMap) {
+      requestMaps.manual.polyline.setMap(null);
+    }
+    requestMaps.manual.polyline = null;
   }
+
+  // Pre-fill next sequential Tele ID
+  const nextId = await getNextTeleId();
+  const idInput = document.getElementById('manual-delivery-id');
+  if (idInput) idInput.value = nextId;
 
   document.getElementById('modal-request-delivery').classList.remove('hidden');
   
   // Initialize or redraw map after modal opens
   setTimeout(() => {
-    initRequestDeliveryMap();
+    initRequestDeliveryMap('manual');
   }, 200);
 
   if (window.lucide) lucide.createIcons();
@@ -5735,15 +6825,44 @@ function showRequestDeliveryModal() {
 function closeRequestDeliveryModal(event) {
   if (event && event.target !== event.currentTarget) return;
   document.getElementById('modal-request-delivery').classList.add('hidden');
+
+  // Full cleanup of map instance to avoid memory leak and layout conflicts
+  if (requestMaps.manual.map) {
+    if (requestMaps.manual.marker && requestMaps.manual.marker.setMap) {
+      requestMaps.manual.marker.setMap(null);
+    }
+    requestMaps.manual.marker = null;
+
+    if (requestMaps.manual.restaurantMarker && requestMaps.manual.restaurantMarker.setMap) {
+      requestMaps.manual.restaurantMarker.setMap(null);
+    }
+    requestMaps.manual.restaurantMarker = null;
+
+    if (requestMaps.manual.polyline && requestMaps.manual.polyline.setMap) {
+      requestMaps.manual.polyline.setMap(null);
+    }
+    requestMaps.manual.polyline = null;
+    
+    requestMaps.manual.map = null;
+  }
+
+  // Reset the address input and its autocomplete binding state
+  const manualAddressInput = document.getElementById('manual-delivery-address');
+  if (manualAddressInput) {
+    manualAddressInput.value = '';
+    delete manualAddressInput.dataset.autocompleteInitialized;
+  }
 }
 
-function toggleChangeAmountGroup() {
-  const method = document.getElementById('payment-method').value;
-  const group = document.getElementById('change-amount-group');
-  if (method === 'dinheiro') {
-    group.classList.remove('hidden');
-  } else {
-    group.classList.add('hidden');
+function toggleChangeAmountGroup(type = 'client') {
+  const method = document.getElementById(`${type}-payment-method`).value;
+  const group = document.getElementById(`${type}-change-amount-group`);
+  if (group) {
+    if (method === 'dinheiro') {
+      group.classList.remove('hidden');
+    } else {
+      group.classList.add('hidden');
+    }
   }
 }
 
@@ -6058,8 +7177,7 @@ async function deleteCommerceByName(nome) {
     await fetchClientHistory();
     await fetchPendingDeliveries();
     
-    renderPendingDeliveries();
-    renderActiveDeliveries();
+    renderTelesUnified();
     updateOwnerDashboardOverview();
     
     showToastNotification(`Comércio "${nome}" e suas entregas foram removidos.`);
@@ -6068,6 +7186,284 @@ async function deleteCommerceByName(nome) {
     alert('Erro ao remover comércio: ' + err.message);
   }
 }
+
+let quickMapInstance = null;
+let quickMapMarker = null;
+
+window.openQuickMapModal = function(teleId, lat, lng) {
+  const modal = document.getElementById('modal-quick-map');
+  const span = document.getElementById('quick-map-tele-id');
+  const container = document.getElementById('quick-map-container');
+  if (!modal || !span || !container) return;
+
+  span.innerText = formatOrderIdForDisplay(teleId);
+  modal.classList.remove('hidden');
+
+  // Insert a clean loading state inside the container
+  container.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--color-text-muted); font-size: 0.9rem;">
+      Carregando mapa...
+    </div>
+  `;
+
+  // Wait 250ms for modal overlay display display transition to complete
+  setTimeout(() => {
+    loadGoogleMapsAPI(() => {
+      if (quickMapInstance) {
+        quickMapInstance = null;
+      }
+      container.innerHTML = '';
+
+      const numericLat = parseFloat(lat);
+      const numericLng = parseFloat(lng);
+      
+      if (isNaN(numericLat) || isNaN(numericLng)) {
+        container.innerHTML = `
+          <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ef4444; font-size: 0.9rem;">
+            Coordenadas não encontradas para esta tele.
+          </div>
+        `;
+        return;
+      }
+
+      const localDarkStyle = [
+        { elementType: "geometry", stylers: [{ color: "#1e1e24" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#1e1e24" }] },
+        { elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+        { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#33333d" }] },
+        { featureType: "poi", stylers: [{ visibility: "off" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d2d38" }] },
+        { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a22" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+        { featureType: "transit", stylers: [{ visibility: "off" }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d0d11" }] }
+      ];
+
+      const latLng = new google.maps.LatLng(numericLat, numericLng);
+      quickMapInstance = new google.maps.Map(container, {
+        center: latLng,
+        zoom: 16,
+        disableDefaultUI: true,
+        zoomControl: true,
+        styles: localDarkStyle
+      });
+
+      const markerHtml = `
+        <div style="background-color: #ffb700; box-shadow: 0 0 10px #ffb700; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative;">
+          <div class="marker-pulse" style="border-color: #ffb700; position: absolute; top: -5px; left: -5px; width: 24px; height: 24px; border: 2px solid #ffb700; border-radius: 50%; animation: pulse-dot-anim 2.5s infinite;"></div>
+          <i style="background-color: #fff; width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
+        </div>
+      `;
+
+      if (window.CustomHTMLMapMarker) {
+        quickMapMarker = new window.CustomHTMLMapMarker(latLng, quickMapInstance, markerHtml);
+      } else {
+        quickMapMarker = new google.maps.Marker({
+          position: latLng,
+          map: quickMapInstance
+        });
+      }
+
+      setTimeout(() => {
+        google.maps.event.trigger(quickMapInstance, 'resize');
+        quickMapInstance.setCenter(latLng);
+      }, 100);
+    });
+  }, 250);
+};
+
+window.closeQuickMapModal = function(event) {
+  if (event && event.stopPropagation) {
+    event.stopPropagation();
+  }
+  const modal = document.getElementById('modal-quick-map');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+  if (quickMapMarker && quickMapMarker.setMap) {
+    quickMapMarker.setMap(null);
+  }
+  quickMapMarker = null;
+  quickMapInstance = null;
+};
+
+window.simularIntegracao99Food = async function() {
+  console.log("=== INICIANDO SIMULAÇÃO DE INTEGRAÇÃO 99FOOD ===");
+
+  // 1. Simulação do Payload Nativo da API do 99Food (Calibrado com a base na Rua Ana Rosa 221)
+  const orderNum = Math.floor(100000 + Math.random() * 900000);
+  const payload99 = {
+    order_id: '#99F-' + orderNum,
+    customer_name: 'Guilherme Silva (Teste 99Food)',
+    delivery_address_string: 'Rua Ana Rosa, 221 - Sapucaia do Sul - RS',
+    delivery_latitude: -29.842173,
+    delivery_longitude: -51.126764,
+    items: ['X-Salada Especial', 'Coca-Cola 350ml']
+  };
+
+  console.log("Payload nativo recebido do 99Food:", payload99);
+
+  // 2. Função de Tratamento / Conversão para o padrão do Garra Delivery
+  const converterParaGarra = (rawOrder) => {
+    let finalPrice = 12.00;
+    if (mockData && mockData.cities) {
+      const sortedCities = [...(mockData.cities || [])].sort((a, b) => b.nome.length - a.nome.length);
+      const matchedCity = sortedCities.find(city => rawOrder.delivery_address_string.toLowerCase().includes(city.nome.toLowerCase()));
+      if (matchedCity) {
+        finalPrice = matchedCity.taxa;
+      }
+    }
+
+    return {
+      id: rawOrder.order_id,
+      client: '99Food',
+      dest_name: rawOrder.customer_name,
+      address: rawOrder.delivery_address_string,
+      dist: '3.8 km',
+      price: 'R$ ' + finalPrice.toFixed(2).replace('.', ','),
+      payment: 'Pago pelo App (99Food)',
+      cargo: '🍔 Itens: ' + rawOrder.items.join(' + '),
+      pickup_lat: -29.842173,
+      pickup_lng: -51.126764,
+      dest_lat: rawOrder.delivery_latitude,
+      dest_lng: rawOrder.delivery_longitude,
+      total_order_amount: 'R$ 44,00'
+    };
+  };
+
+  const convertedTele = converterParaGarra(payload99);
+  console.log("Payload convertido para o padrão Garra Delivery:", convertedTele);
+
+  // 3. Inserção direta no Supabase com Geocoder Coordinate Shield
+  if (!supabaseClient) {
+    console.error("Erro: supabaseClient não inicializado. Verifique a conexão com o banco.");
+    alert("Erro: Supabase não conectado. Insira as variáveis locais no arquivo .env.");
+    return;
+  }
+
+  const proceedWithInsertion = async (tele) => {
+    try {
+      console.log("Enviando tele para o Supabase...", tele);
+      let { error } = await supabaseClient
+        .from('pending_deliveries')
+        .insert([tele]);
+
+      if (error && error.code === '42703') {
+        const retryTele = { ...tele };
+        delete retryTele.total_order_amount;
+        const { error: retryError } = await supabaseClient
+          .from('pending_deliveries')
+          .insert([retryTele]);
+        error = retryError;
+      }
+
+      if (error) throw error;
+
+      console.log(`Sucesso! Tele do 99Food criada com ID: ${tele.id}`);
+
+      // Atualiza as locais e re-renderiza o painel
+      await fetchPendingDeliveries();
+      renderTelesUnified();
+      updateOwnerDashboardOverview();
+
+      alert(`Pedido 99Food (#${tele.id}) inserido e renderizado com sucesso no painel!`);
+    } catch (err) {
+      console.error("Erro ao simular integração 99Food:", err);
+      alert("Erro na simulação do 99Food: " + err.message);
+    }
+  };
+
+  // Google Maps Geocoder Shield:
+  // Se as coordenadas forem genéricas (ex: centro de Sapucaia -29.8378, -51.1444) ou se for necessário recalibrar
+  const isGeneric = (Math.abs(convertedTele.dest_lat - (-29.8378)) < 0.01 && Math.abs(convertedTele.dest_lng - (-51.1444)) < 0.01);
+  if (isGeneric && window.google && google.maps && google.maps.Geocoder) {
+    console.log("Geocoder Shield: Coordenadas genéricas detectadas. Buscando localização exata do endereço...");
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: convertedTele.address }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        convertedTele.dest_lat = loc.lat();
+        convertedTele.dest_lng = loc.lng();
+        console.log(`Geocoder Shield: Coordenadas recalibradas com precisão: ${convertedTele.dest_lat}, ${convertedTele.dest_lng}`);
+      } else {
+        console.warn("Geocoder Shield: falha ao buscar endereço, usando dados originais.");
+      }
+      proceedWithInsertion(convertedTele);
+    });
+  } else {
+    proceedWithInsertion(convertedTele);
+  }
+};
+
+window.dispararWebhook99FoodProducao = async function() {
+  console.log("=== INICIANDO DISPARO EXTERNO DO WEBHOOK 99FOOD EM PRODUÇÃO ===");
+
+  const orderNum = Math.floor(100000 + Math.random() * 900000);
+  const orderId = '#99F-' + orderNum;
+  const requestId = 'req-' + Math.random().toString(36).substring(7);
+
+  // Payload estruturado seguindo o modelo do evento orderNew da 99Food
+  const payload = {
+    type: "orderNew",
+    app_shop_id: "garra-bora-01",
+    data: {
+      order_id: orderId,
+      order_info: {
+        order_index: String(orderNum).slice(-4),
+        receive_address: {
+          poi_address: "Rua Ana Rosa, 221 - Sapucaia do Sul - RS",
+          name: "Cliente Teste 99",
+          poi_lat: -29.8378,
+          poi_lng: -51.1444
+        },
+        price: {
+          order_price: 1500 // R$ 15,00 em centavos
+        },
+        order_items: [
+          {
+            name: "X-Salada Especial",
+            amount: 1
+          },
+          {
+            name: "Coca-Cola 350ml",
+            amount: 1
+          }
+        ]
+      }
+    }
+  };
+
+  const url = 'https://faowxiyxjfogkoynsohj.supabase.co/functions/v1/food99-webhook?token=006371343d7d834ddfa5bb2056339c30';
+
+  console.log(`Disparando POST para ${url}`);
+  console.log("Payload enviado:", payload);
+  console.log(`X-Request-ID anexado: ${requestId}`);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Request-ID': requestId
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await response.json();
+    console.log("Resposta recebida do Servidor de Produção:", data);
+
+    if (data && data.errno === 0 && data.errmsg === 'ok') {
+      console.log("%c CIRCUITO HOMOLOGADO E CONFIRMADO COM SUCESSO! ", "background: #22c55e; color: #fff; font-weight: bold; padding: 4px;");
+      alert(`Webhook enviado com sucesso!\nID do Pedido: ${orderId}\nResposta: ${JSON.stringify(data)}`);
+    } else {
+      console.error("Servidor retornou erro ou formato inválido:", data);
+      alert(`Erro na resposta do webhook: ${JSON.stringify(data)}`);
+    }
+  } catch (err) {
+    console.error("Falha ao efetuar disparo do webhook:", err);
+    alert("Falha no disparo do webhook: " + err.message);
+  }
+};
 
 
 

@@ -1,90 +1,91 @@
-// Garra Motoboy PWA — Service Worker
-const CACHE_NAME = 'garra-moto-v36';
-
-// App shell assets to cache on install
-const SHELL_ASSETS = [
+// Garra Delivery - Service Worker Otimizado
+const CACHE_NAME = 'garra-delivery-cache-v1';
+const ASSETS_TO_CACHE = [
   '/',
-  '/motoboy.html',
-  '/motoboy.js',
+  '/index.html',
+  '/style.css',
+  '/app.js',
   '/manifest.json',
-  '/logo.png',
-  'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css',
-  'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js',
-  'https://unpkg.com/lucide@latest',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
+  '/download-app'
 ];
 
-// Install: pre-cache app shell
+// Instalação do Service Worker e Cache Inicial
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(SHELL_ASSETS);
+      console.log('📦 [Service Worker] Fazendo cache dos arquivos estáticos');
+      return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  self.skipWaiting();
+  self.skipWaiting(); // Força o SW novo a ativar imediatamente
 });
 
-// Activate: remove old caches
+// Ativação e Limpeza de Caches Antigos
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      )
-    )
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cache) => {
+          if (cache !== CACHE_NAME) {
+            console.log('🗑️ [Service Worker] Removendo cache antigo:', cache);
+            return caches.delete(cache);
+          }
+        })
+      );
+    })
   );
-  self.clients.claim();
+  self.clients.claim(); // Assume o controle das abas abertas imediatamente
 });
 
-// Fetch: network-first for API calls, cache-first for assets
+// Interceptação de Requisições de Rede (Fetch)
 self.addEventListener('fetch', (event) => {
+  // 🔥 CORREÇÃO DO BUG CRÍTICO: 
+  // APIs de cache só suportam o método GET. Se for POST (como as requisições do Supabase, iFood e 99Food),
+  // nós ignoramos o Service Worker e deixamos a requisição passar direto para a internet.
+  if (event.request.method !== 'GET') {
+    return; 
+  }
+
+  // Bypass service worker for cross-origin requests (like Supabase API)
   const url = new URL(event.request.url);
-
-  // Only handle http(s) requests — ignore chrome-extension:// and others
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+  if (url.origin !== self.location.origin) {
     return;
   }
 
-  // Always go to network for Supabase API calls
-  if (url.hostname.includes('supabase.co')) {
-    event.respondWith(fetch(event.request));
-    return;
-  }
-
-  if (
-    event.request.mode === 'navigate' ||
-    url.pathname.endsWith('.html') ||
-    url.pathname.endsWith('.css') ||
-    url.pathname.endsWith('.js')
-  ) {
-    event.respondWith(
-      fetch(event.request).then((response) => {
-        if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {
-          const cloned = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
-        }
-        return response;
-      }).catch(() => caches.match(event.request))
-    );
-    return;
-  }
-
-  // Cache-first for app shell assets
+  // Lógica de Cache para requisições GET (HTML, CSS, JS, Imagens)
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        // Cache new valid responses
-        if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {
-          const cloned = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        // Se estiver no cache, devolve imediatamente, mas busca uma versão nova em background (Stale-While-Revalidate)
+        fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
+          }
+        }).catch(() => console.log('[Service Worker] Rodando em modo offline para esta requisição GET'));
+        
+        return cachedResponse;
+      }
+
+      // Se não estiver no cache, busca normal na internet
+      return fetch(event.request).then((networkResponse) => {
+        // Não cacheia respostas inválidas ou de extensões do navegador
+        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
+          return networkResponse;
         }
-        return response;
+
+        // Guarda uma cópia no cache e devolve a resposta para a tela
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, responseToCache);
+        });
+
+        return networkResponse;
       });
     })
   );
 });
 
+// Escuta mensagens do painel administrativo para pular linha de espera
 self.addEventListener('message', (event) => {
   if (event.data === 'skip-waiting') {
     self.skipWaiting();

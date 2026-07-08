@@ -3050,3 +3050,251 @@ input:checked + .slider:before {
 .table-scroll-container::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
 }
+
+/* =====================================================================
+   MIGRATION: UNIFIED TELES VIEW STYLES
+   ===================================================================== */
+
+/* View Mode Toggler Styles */
+.view-toggle button {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: none;
+  transition: all 0.2s ease;
+}
+.view-toggle button.active {
+  background: var(--bg-card) !important;
+  color: var(--color-text) !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+}
+
+/* Status Filter Pill Styles */
+.filter-pill {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--color-text-muted);
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.filter-pill:hover, .filter-pill.active {
+  background: var(--bg-card-hover);
+  border-color: var(--primary);
+  color: var(--color-text);
+}
+.filter-pill.active {
+  box-shadow: 0 0 10px var(--primary-glow);
+}
+
+/* Compact Table Layout (Production-Grade High Density) */
+.compact-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+.compact-table th {
+  background-color: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  padding: 6px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+.compact-table td {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--color-text);
+  vertical-align: middle;
+}
+.compact-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+.compact-table tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+.compact-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.compact-table select.inline-select {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--color-text);
+  border-radius: var(--border-radius-sm);
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+  max-width: 180px;
+  transition: border-color 0.15s ease;
+}
+.compact-table select.inline-select:focus {
+  border-color: var(--primary);
+}
+
+/* Action Icons inside Table */
+.table-action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.table-action-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  transform: scale(1.15);
+}
+.table-action-btn.btn-success:hover {
+  color: var(--success);
+}
+.table-action-btn.btn-warning:hover {
+  color: var(--warning);
+}
+.table-action-btn.btn-danger:hover {
+  color: #ef4444;
+}
+
+/* Google Maps InfoWindow dark theme styling */
+.gm-style-iw-c {
+  background-color: #1e1e24 !important;
+  color: var(--color-text) !important;
+  border: 1px solid rgba(255, 185, 0, 0.3) !important;
+  border-radius: var(--border-radius-md) !important;
+  box-shadow: var(--shadow-lg) !important;
+  padding: 0 !important;
+}
+
+.gm-style-iw-d {
+  overflow: hidden !important;
+  max-height: none !important;
+  padding: 0 !important;
+}
+
+.gm-style-iw-t::after {
+  background: #1e1e24 !important;
+  box-shadow: -1px 1px 0 0 rgba(255, 185, 0, 0.3) !important;
+}
+
+.gm-ui-hover-effect {
+  top: 8px !important;
+  right: 8px !important;
+  opacity: 0.7 !important;
+  transition: opacity 0.2s !important;
+}
+.gm-ui-hover-effect:hover {
+  opacity: 1 !important;
+}
+.gm-ui-hover-effect span {
+  background-color: var(--color-text-muted) !important;
+  margin: 4px !important;
+}
+
+/* Google Autocomplete dark theme dropdown */
+.pac-container {
+  background-color: #121216 !important;
+  border: 1px solid rgba(255, 185, 0, 0.3) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  font-family: inherit !important;
+  margin-top: 4px !important;
+  z-index: 99999 !important;
+}
+
+.pac-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: #8e8e9f !important;
+  cursor: pointer !important;
+  padding: 8px 12px !important;
+  font-size: 0.85rem !important;
+  line-height: 1.5 !important;
+}
+
+.pac-item:first-of-type {
+  border-top: none !important;
+}
+
+.pac-item:hover {
+  background-color: rgba(255, 185, 0, 0.08) !important;
+  color: #fff !important;
+}
+
+.pac-item-query {
+  color: #fff !important;
+  font-size: 0.85rem !important;
+  font-weight: 500 !important;
+}
+
+.pac-matched {
+  color: #ffb700 !important;
+}
+
+.pac-logo::after {
+  display: none !important;
+}
+
+/* Floating Action Button (FAB) - Chamar Tele Manual */
+.fab-btn {
+  position: fixed !important;
+  bottom: 20px !important;
+  right: 20px !important;
+  width: 56px !important;
+  height: 56px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, var(--primary), #c2410c) !important;
+  border: none !important;
+  color: #ffffff !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.4) !important;
+  cursor: pointer !important;
+  transition: transform 0.2s, box-shadow 0.2s !important;
+  z-index: 9999 !important; /* z-index ultra-alto para persistência sobre tabelas */
+}
+
+.fab-btn:hover {
+  transform: scale(1.08) !important;
+  box-shadow: 0 10px 28px rgba(245, 158, 11, 0.6) !important;
+}
+
+.fab-btn-fixed {
+  position: fixed !important;
+  bottom: 25px !important;
+  right: 25px !important;
+  width: 60px !important;
+  height: 60px !important;
+  border-radius: 50% !important;
+  background: linear-gradient(135deg, var(--primary), #c2410c) !important;
+  border: none !important;
+  color: #ffffff !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-shadow: 0 8px 32px rgba(245, 158, 11, 0.4) !important;
+  cursor: pointer !important;
+  z-index: 99999 !important; /* Camada ultra-alta isolada sobre qualquer tabela */
+  transition: transform 0.2s, box-shadow 0.2s !important;
+}
+
+.fab-btn-fixed:hover {
+  transform: scale(1.1) !important;
+  box-shadow: 0 12px 36px rgba(245, 158, 11, 0.6) !important;
+}
+

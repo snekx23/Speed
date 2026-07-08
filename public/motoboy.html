@@ -13,9 +13,8 @@
   <link rel="icon" type="image/png" href="logo.png?v=3">
   <link rel="apple-touch-icon" href="logo.png?v=3">
 
-  <!-- Mapbox GL JS -->
-  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
-  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <!-- Google Maps API -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBkwbG65d17USn4PLxNzyPN7QODNaWWZ0k&libraries=geometry,places"></script>
 
   <!-- Lucide & Supabase -->
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -472,39 +471,34 @@
     .leaflet-popup-tip { background: var(--bg-card); }
     .leaflet-popup-close-button { color: var(--muted) !important; }
 
-    /* Mapbox dark overrides */
-    .mapboxgl-popup-content {
-      background: var(--bg-card) !important;
-      border: 1px solid var(--border) !important;
+    /* Google Maps InfoWindow dark theme styling */
+    .gm-style-iw-c {
+      background-color: #1e1e24 !important;
+      color: var(--text) !important;
+      border: 1px solid rgba(255, 185, 0, 0.3) !important;
       border-radius: 10px !important;
       box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important;
-      color: var(--text) !important;
-      padding: 14px 18px 12px 14px !important;
+      padding: 0 !important;
     }
-    .mapboxgl-popup-tip {
-      border-top-color: var(--bg-card) !important;
-      border-bottom-color: var(--bg-card) !important;
-      border-left-color: var(--bg-card) !important;
-      border-right-color: var(--bg-card) !important;
+
+    .gm-style-iw-d {
+      overflow: auto !important;
+      max-height: none !important;
+      padding: 0 !important;
     }
-    .mapboxgl-popup-close-button {
-      color: var(--muted) !important;
-      font-size: 16px !important;
-      padding: 4px 8px !important;
-      outline: none !important;
+
+    .gm-style-iw-t::after {
+      background: #1e1e24 !important;
+      box-shadow: -1px 1px 0 0 rgba(255, 185, 0, 0.3) !important;
     }
-    .mapboxgl-popup-close-button:hover {
-      background-color: rgba(255, 255, 255, 0.05) !important;
-      color: var(--text) !important;
+
+    .gm-ui-hover-effect {
+      top: 12px !important;
+      right: 12px !important;
     }
-    .mapboxgl-popup-anchor-top .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-bottom .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-left .mapboxgl-popup-tip { border-right-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-right .mapboxgl-popup-tip { border-left-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-top-left .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-top-right .mapboxgl-popup-tip { border-bottom-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-bottom-left .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
-    .mapboxgl-popup-anchor-bottom-right .mapboxgl-popup-tip { border-top-color: var(--bg-card) !important; }
+    .gm-ui-hover-effect span {
+      background-color: var(--muted) !important;
+    }
 
     /* Safe area for notch phones */
     @supports (padding-bottom: env(safe-area-inset-bottom)) {
@@ -1420,6 +1414,6 @@
   </div>
 
   <script src="config.js"></script>
-  <script src="motoboy.js"></script>
+  <script src="motoboy.js?v=20260708_v6"></script>
 </body>
 </html>

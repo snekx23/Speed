@@ -413,37 +413,47 @@
 
           <!-- 1c. Owner Teles Management -->
           <div id="tab-owner-teles" class="dashboard-tab-content">
-            <!-- Pending Teles -->
-            <div>
-              <div class="section-header" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                  <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Teles Pendentes de Despacho</h3>
-                  <p class="text-muted">Selecione um motoboy disponível e envie a tele para ele iniciar a entrega.</p>
-                </div>
-                <span class="badge badge-warning" id="pending-count-badge">0 pendentes</span>
+            <!-- Header with View Toggle -->
+            <div class="section-header flex-row" style="margin-bottom: 16px;">
+              <div>
+                <h3 class="gradient-text font-display" style="font-size: 1.6rem; font-weight: 700;">Gestão de Teles</h3>
+                <p class="text-muted">Despache, monitore e gerencie todas as corridas ativas, pendentes, concluídas ou canceladas.</p>
               </div>
-              <div class="pending-grid" id="pending-deliveries-container">
-                <!-- Rendered dynamically via JS -->
+              <div class="view-toggle-container" style="display: flex; align-items: center; gap: 12px;">
+                <div class="view-toggle" style="display: flex; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px;">
+                  <button id="view-toggle-grid" class="btn btn-sm" onclick="setTeleViewMode('grid')" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    <i data-lucide="layout-grid" style="width: 14px; height: 14px;"></i> Cards
+                  </button>
+                  <button id="view-toggle-list" class="btn btn-sm active" onclick="setTeleViewMode('list')" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    <i data-lucide="list" style="width: 14px; height: 14px;"></i> Lista Compacta
+                  </button>
+                </div>
               </div>
             </div>
 
-            <!-- Active Deliveries -->
-            <div style="margin-top: 36px;">
-              <div class="section-header" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                  <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Teles em Andamento</h3>
-                  <p class="text-muted">Corridas em trânsito com os entregadores. Finalize ao confirmar entrega.</p>
-                </div>
-                <span class="badge badge-success" id="active-count-badge">0 em rota</span>
-              </div>
-              <div class="active-deliveries-grid" id="active-deliveries-container">
-                <!-- Rendered dynamically via JS -->
-              </div>
+            <!-- Global Status Filters -->
+            <div class="teles-filters" style="display: flex; gap: 8px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 8px;">
+              <button id="filter-all" class="filter-pill active" onclick="setTeleFilter('all')">
+                Todas <span class="badge badge-sm bg-primary-glow text-primary" id="count-all">0</span>
+              </button>
+              <button id="filter-pending" class="filter-pill" onclick="setTeleFilter('pending')">
+                Aguardando Despacho <span class="badge badge-sm bg-warning-glow text-warning" id="count-pending">0</span>
+              </button>
+              <button id="filter-active" class="filter-pill" onclick="setTeleFilter('active')">
+                Em Execução / Rota <span class="badge badge-sm bg-info-glow text-info" id="count-active">0</span>
+              </button>
+              <button id="filter-completed" class="filter-pill" onclick="setTeleFilter('completed')">
+                Concluídas <span class="badge badge-sm bg-success-glow text-success" id="count-completed">0</span>
+              </button>
+              <button id="filter-canceled" class="filter-pill" onclick="setTeleFilter('canceled')">
+                Canceladas <span class="badge badge-sm bg-danger-glow text-danger" id="count-canceled">0</span>
+              </button>
             </div>
-            <!-- Floating Button to request tele manual -->
-            <button class="fab-btn" onclick="showRequestDeliveryModal()" title="Chamar Tele Manual" onmouseenter="this.style.transform='scale(1.08)'" onmouseleave="this.style.transform='scale(1)'" style="position: fixed; bottom: 30px; right: 30px; width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), #c2410c); border: none; color: #ffffff; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px rgba(245,158,11,0.4); cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; z-index: 99;">
-              <i data-lucide="plus" style="width: 24px; height: 24px; stroke-width: 2.5;"></i>
-            </button>
+
+            <!-- Unified Content Container (Cards or Table) -->
+            <div id="teles-content-container">
+              <!-- Rendered dynamically via JS -->
+            </div>
           </div>
 
           <!-- 1d. Owner Integrações (iFood / 99Food) -->
@@ -939,11 +949,10 @@
                 <i data-lucide="circle-check"></i>
                 <span>Pronto para operar</span>
               </div>
-              </div>
             </section>
 
             <div class="ops-actions-grid partner-actions" id="client-action-cards">
-              <button type="button" class="ops-card ops-card-large" onclick="switchDashboardTab('client-request')">
+              <button type="button" class="ops-card ops-card-large" onclick="switchDashboardTab('order-request')">
                 <span class="ops-card-icon"><i data-lucide="package-plus"></i></span>
                 <h3>Nova solicitação</h3>
                 <p>Abra uma entrega com endereço, forma de pagamento e observações da carga.</p>
@@ -1008,7 +1017,6 @@
                     <i data-lucide="database"></i>
                     <h4>Sem métricas simuladas</h4>
                     <p>Quando houver registros reais, as tabelas e históricos serão preenchidos automaticamente pelo banco de dados.</p>
-                  </div>
                   </div>
                 </div>
               </div>
@@ -1105,22 +1113,22 @@
                   <p class="text-muted">Chame o motoboy livre mais próximo para buscar e entregar sua carga.</p>
                 </div>
                 <div class="card-body">
-                  <form id="order-request-form" onsubmit="submitDeliveryRequest(event)">
+                  <form id="order-request-form" onsubmit="submitDeliveryRequest(event, 'client')">
                     <div class="form-row">
                       <div class="form-group flex-1">
-                        <label for="pickup-address"><i data-lucide="store" class="inline-icon text-yellow"></i> Ponto de Retirada (Comércio)</label>
+                        <label for="client-pickup-address"><i data-lucide="store" class="inline-icon text-yellow"></i> Ponto de Retirada (Comércio)</label>
                         <div class="input-wrapper">
-                          <input type="text" id="pickup-address" readonly value="Retirada cadastrada no painel">
+                          <input type="text" id="client-pickup-address" readonly value="Retirada cadastrada no painel">
                         </div>
                       </div>
                     </div>
 
                     <div class="form-group mt-3">
-                      <label for="delivery-address"><i data-lucide="map-pin" class="inline-icon text-red"></i> Destino da Entrega</label>
+                      <label for="client-delivery-address"><i data-lucide="map-pin" class="inline-icon text-red"></i> Destino da Entrega</label>
                       <div class="input-wrapper">
                         <i data-lucide="search" class="input-icon"></i>
-                        <input type="text" id="delivery-address" required placeholder="Digite o endereço completo do cliente" oninput="calculateEstimate()">
-                        <div id="address-suggestions" class="autocomplete-dropdown hidden"></div>
+                        <input type="text" id="client-delivery-address" required placeholder="Digite o endereço completo do cliente" oninput="calculateEstimate('client')">
+                        <div id="client-address-suggestions" class="autocomplete-dropdown hidden"></div>
                       </div>
                     </div>
 
@@ -1128,13 +1136,13 @@
                       <label style="font-size: 0.8rem; color: var(--color-text-muted); display: flex; align-items: center; gap: 6px;">
                         <i data-lucide="map" style="width: 14px; height: 14px;"></i> Marcar no Mapa (Arraste o marcador ou clique para ajustar)
                       </label>
-                      <div id="request-delivery-map" style="height: 250px; width: 100%; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); z-index: 1;"></div>
+                      <div id="client-request-delivery-map" style="height: 250px; width: 100%; border-radius: var(--border-radius-md); border: 1px solid var(--border-color); z-index: 1;"></div>
                     </div>
 
                     <div class="form-row mt-3">
                       <div class="form-group flex-1">
-                        <label for="cargo-type">Tipo de Mercadoria</label>
-                        <select id="cargo-type">
+                        <label for="client-cargo-type">Tipo de Mercadoria</label>
+                        <select id="client-cargo-type">
                           <option value="lanche">🍔 Lanches e Bebidas</option>
                           <option value="pizza">🍕 Pizza Gigante / Família</option>
                           <option value="doce">🍩 Sobremesas / Doces</option>
@@ -1142,8 +1150,8 @@
                         </select>
                       </div>
                       <div class="form-group flex-1">
-                        <label for="payment-method">Forma de Pagamento (Cliente)</label>
-                        <select id="payment-method">
+                        <label for="client-payment-method">Forma de Pagamento (Cliente)</label>
+                        <select id="client-payment-method" onchange="toggleChangeAmountGroup('client')">
                           <option value="pix">PIX (Já Pago pelo App)</option>
                           <option value="cartao-maquininha">Levar Maquininha (Cartão)</option>
                           <option value="dinheiro">Dinheiro (Troco Necessário)</option>
@@ -1151,31 +1159,31 @@
                       </div>
                     </div>
 
-                    <div class="form-group mt-3" id="change-group" style="display: none;">
-                      <label for="change-amount">Troco para quanto?</label>
+                    <div class="form-group mt-3 hidden" id="client-change-amount-group">
+                      <label for="client-change-amount">Troco para quanto?</label>
                       <div class="input-wrapper">
                         <span class="input-prefix">R$</span>
-                        <input type="number" id="change-amount" placeholder="Ex: 50,00" min="1">
+                        <input type="number" id="client-change-amount" placeholder="Ex: 50,00" min="1" value="50">
                       </div>
                     </div>
 
                     <div class="form-group mt-3">
-                      <label for="order-notes">Observações do Pedido</label>
-                      <textarea id="order-notes" rows="3" placeholder="Ex: Apartamento 302, Bloco B. Ligar quando chegar no portão."></textarea>
+                      <label for="client-order-notes">Observações do Pedido</label>
+                      <textarea id="client-order-notes" rows="3" placeholder="Ex: Apartamento 302, Bloco B. Ligar quando chegar no portão."></textarea>
                     </div>
 
-                    <div class="estimate-box mt-4 hidden" id="estimate-box">
+                    <div class="estimate-box mt-4 hidden" id="client-estimate-box">
                       <div class="estimate-detail">
                         <span>Distância Calculada:</span>
-                        <strong id="est-distance">-- km</strong>
+                        <strong id="client-est-distance">-- km</strong>
                       </div>
                       <div class="estimate-detail">
                         <span>Tempo de Deslocamento:</span>
-                        <strong id="est-time">-- min</strong>
+                        <strong id="client-est-time">-- min</strong>
                       </div>
                       <div class="estimate-price-row mt-2 pt-2 border-top">
                         <span>Taxa de Entrega:</span>
-                        <strong class="text-yellow" id="est-price">R$ 0,00</strong>
+                        <strong class="text-yellow" id="client-est-price">R$ 0,00</strong>
                       </div>
                     </div>
 
@@ -1952,24 +1960,29 @@
         <h3>Nova Tele Manual</h3>
         <button class="modal-close-btn" onclick="closeRequestDeliveryModal()"><i data-lucide="x"></i></button>
       </div>
-      <form id="request-delivery-form" onsubmit="submitDeliveryRequest(event)">
+      <form id="request-delivery-form" onsubmit="submitDeliveryRequest(event, 'manual')">
         <div class="modal-body" style="display: flex; flex-direction: column; gap: 14px; max-height: 70vh; overflow-y: auto; padding-right: 4px;">
           
+          <div class="form-group">
+            <label for="manual-delivery-id" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Código / Número da Tele</label>
+            <input type="text" id="manual-delivery-id" required placeholder="Ex: #TELE-0050" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="form-group">
-              <label for="delivery-client" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Estabelecimento (Cliente)</label>
-              <input type="text" id="delivery-client" required value="Parceiro Garra" placeholder="Ex: Lancheria Garra" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+              <label for="manual-delivery-client" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Estabelecimento (Cliente)</label>
+              <input type="text" id="manual-delivery-client" required value="Parceiro Garra" placeholder="Ex: Lancheria Garra" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
             </div>
             <div class="form-group">
-              <label for="delivery-dest-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Destinatário</label>
-              <input type="text" id="delivery-dest-name" required value="Cliente informado" placeholder="Ex: João da Silva" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+              <label for="manual-delivery-dest-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Destinatário</label>
+              <input type="text" id="manual-delivery-dest-name" required value="Cliente informado" placeholder="Ex: João da Silva" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
             </div>
           </div>
 
           <div class="form-group" style="position: relative;">
-            <label for="delivery-address" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Endereço de Entrega</label>
-            <input type="text" id="delivery-address" required placeholder="Digite a rua, número e cidade..." oninput="calculateEstimate()" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;" autocomplete="off">
-            <div id="address-suggestions" class="autocomplete-dropdown hidden"></div>
+            <label for="manual-delivery-address" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Endereço de Entrega</label>
+            <input type="text" id="manual-delivery-address" required placeholder="Digite a rua, número e cidade..." oninput="calculateEstimate('manual')" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;" autocomplete="off">
+            <div id="manual-address-suggestions" class="autocomplete-dropdown hidden"></div>
           </div>
 
           <!-- Map Preview for precise pin placement -->
@@ -1978,13 +1991,13 @@
               <i data-lucide="map" style="width: 14px; height: 14px; color: var(--primary);"></i>
               Localização no Mapa <span style="font-size: 0.75rem; color: var(--color-text-muted); font-weight: 400;">(Arraste o pin se necessário)</span>
             </label>
-            <div id="request-delivery-map" style="height: 180px; width: 100%; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); z-index: 1;"></div>
+            <div id="manual-request-delivery-map" style="height: 180px; width: 100%; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); z-index: 1;"></div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="form-group">
-              <label for="cargo-type" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Mercadoria</label>
-              <select id="cargo-type" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+              <label for="manual-cargo-type" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Mercadoria</label>
+              <select id="manual-cargo-type" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
                 <option value="lanche">🍔 Lanches e Bebidas</option>
                 <option value="pizza">🍕 Pizza Família</option>
                 <option value="doce">🍩 Doces e Sobremesas</option>
@@ -1992,8 +2005,8 @@
               </select>
             </div>
             <div class="form-group">
-              <label for="payment-method" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Forma de Pagamento</label>
-              <select id="payment-method" onchange="toggleChangeAmountGroup()" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+              <label for="manual-payment-method" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Forma de Pagamento</label>
+              <select id="manual-payment-method" onchange="toggleChangeAmountGroup('manual')" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
                 <option value="pix">PIX</option>
                 <option value="cartao-maquininha">Cartão (Maquininha)</option>
                 <option value="dinheiro">Dinheiro</option>
@@ -2001,33 +2014,33 @@
             </div>
           </div>
 
-          <div class="form-group hidden" id="change-amount-group">
-            <label for="change-amount" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Troco para (R$)</label>
-            <input type="number" step="1" min="0" id="change-amount" value="50" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          <div class="form-group hidden" id="manual-change-amount-group">
+            <label for="manual-change-amount" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Troco para (R$)</label>
+            <input type="number" step="1" min="0" id="manual-change-amount" value="50" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
           </div>
 
           <div class="form-group">
-            <label for="order-notes" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Observações / Detalhes</label>
-            <textarea id="order-notes" placeholder="Ex: Apto 302, bloco B..." style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; min-height: 60px; resize: vertical;"></textarea>
+            <label for="manual-order-notes" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Observações / Detalhes</label>
+            <textarea id="manual-order-notes" placeholder="Ex: Apto 302, bloco B..." style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; min-height: 60px; resize: vertical;"></textarea>
           </div>
 
           <!-- Estimate summary box -->
-          <div id="estimate-box" class="estimate-box hidden" style="background: rgba(255, 183, 0, 0.05); border: 1px dashed var(--primary); border-radius: var(--border-radius-sm); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <div id="manual-estimate-box" class="estimate-box hidden" style="background: rgba(255, 183, 0, 0.05); border: 1px dashed var(--primary); border-radius: var(--border-radius-sm); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
             <h4 style="font-size: 0.85rem; color: var(--primary); font-weight: 600; margin: 0; display: flex; align-items: center; gap: 6px;">
               <i data-lucide="calculator" style="width: 14px; height: 14px;"></i> Estimativa de Custos
             </h4>
             <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; margin-top: 4px;">
               <div>
                 <span style="font-size: 0.7rem; color: var(--color-text-muted); display: block;">Distância</span>
-                <strong id="est-distance" style="font-size: 0.95rem; color: var(--color-text);">-</strong>
+                <strong id="manual-est-distance" style="font-size: 0.95rem; color: var(--color-text);">-</strong>
               </div>
               <div>
                 <span style="font-size: 0.7rem; color: var(--color-text-muted); display: block;">Tempo Est.</span>
-                <strong id="est-time" style="font-size: 0.95rem; color: var(--color-text);">-</strong>
+                <strong id="manual-est-time" style="font-size: 0.95rem; color: var(--color-text);">-</strong>
               </div>
               <div>
                 <span style="font-size: 0.7rem; color: var(--color-text-muted); display: block;">Taxa Motoboy</span>
-                <strong id="est-price" style="font-size: 1.1rem; color: var(--primary);">-</strong>
+                <strong id="manual-est-price" style="font-size: 1.1rem; color: var(--primary);">-</strong>
               </div>
             </div>
           </div>
@@ -2089,6 +2102,24 @@
       </div>
     </div>
   </div>
+
+  <!-- Modal: Visualização Rápida de Endereço -->
+  <div id="modal-quick-map" class="modal-overlay hidden" onclick="window.closeQuickMapModal(event)">
+    <div class="modal-card" style="max-width: 500px;" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3><i data-lucide="map" class="inline-icon text-yellow"></i> Mapa da Tele <span id="quick-map-tele-id" style="color: var(--primary);"></span></h3>
+        <button class="modal-close-btn" onclick="window.closeQuickMapModal()"><i data-lucide="x"></i></button>
+      </div>
+      <div class="modal-body" style="padding: 16px;">
+        <div id="quick-map-container" style="width: 100%; height: 300px; border-radius: 8px; border: 1px solid rgba(255, 185, 0, 0.2); background: #121216; overflow: hidden; position: relative;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Button to request tele manual (Fixed Viewport Position) -->
+  <button id="owner-fab-btn" class="fab-btn-fixed hidden" onclick="showRequestDeliveryModal()" title="Chamar Tele Manual">
+    <i data-lucide="plus" style="width: 24px; height: 24px; stroke-width: 2.5;"></i>
+  </button>
 
   <script src="config.js"></script>
   <script src="app.js"></script>

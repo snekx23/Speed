@@ -10,6 +10,7 @@ let riderMap = null;      // Mapbox map instance
 let realtimeChannel = null;
 let watchId = null;       // geolocation watch ID
 let lastPosition = null;  // { lat, lng }
+let currentBatteryLevel = null;
 let hasCenteredOnce = false;
 let knownActiveTeleIds = null; // IDs of active deliveries to play chime on new arrivals
 let activeRiderDeliveryMarkers = {}; // Cache active markers by order ID to avoid recreating them and closing popups
@@ -119,29 +120,53 @@ async function handleMotoLogin(e) {
     return;
   }
 
-  // The ID stored in Supabase is like "#MB-123" — normalize input
-  const motoboyId = rawId.startsWith('#') ? rawId : '#' + rawId;
+  // The ID stored in Supabase is like "#MB-5123" — extract only digits and format
+  const digits = rawId.replace(/\D/g, '');
+  const motoboyId = `#MB-${digits}`;
 
-  const { data, error } = await db
-    .from('fleet')
-    .select('*')
-    .eq('id', motoboyId)
-    .eq('pin', pin)
-    .maybeSingle();
+  try {
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("TIMEOUT")), 5000)
+    );
 
-  btn.disabled = false;
-  btn.innerText = 'Entrar';
+    const queryPromise = db
+      .from('fleet')
+      .select('*')
+      .eq('id', motoboyId)
+      .eq('pin', pin)
+      .maybeSingle();
 
-  if (error || !data) {
-    showLoginError('ID ou PIN incorreto. Contate o administrador.');
-    return;
+    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
+
+    btn.disabled = false;
+    btn.innerText = 'Entrar';
+
+    if (error) {
+      console.error("Database query error during login:", error);
+      console.error("FULL LOGIN ERROR DETAILS (PostgreSQL/Supabase):", error);
+      alert("Erro Supabase/Query: " + JSON.stringify(error));
+      showLoginError('Erro de conexão ou sistema. Verifique a internet.');
+      return;
+    }
+
+    if (!data) {
+      showLoginError('ID ou PIN incorreto. Contate o administrador.');
+      return;
+    }
+
+    currentRider = data;
+    localStorage.setItem('speedMotoSession', JSON.stringify(data));
+    showApp();
+    loadMyDeliveries();
+    startGeolocation();
+  } catch (err) {
+    console.error("Unhandled login exception:", err);
+    console.error("FULL LOGIN ERROR DETAILS (exception):", err);
+    alert("Exceção de Login: " + (err.message || String(err)) + "\n" + JSON.stringify(err));
+    showLoginError('Erro na conexão ou dados inválidos. Tente novamente.');
+    btn.disabled = false;
+    btn.innerText = 'Entrar';
   }
-
-  currentRider = data;
-  localStorage.setItem('speedMotoSession', JSON.stringify(data));
-  showApp();
-  loadMyDeliveries();
-  startGeolocation();
 }
 
 function showLoginError(msg) {
@@ -402,7 +427,13 @@ async function loadMyDeliveries() {
     return;
   }
 
-  const activeDeliveries = data || [];
+  const activeDeliveries = (data || []).map(item => {
+    const fixedPrice = getFixedPriceByAddress(item.address);
+    return {
+      ...item,
+      price: `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`
+    };
+  });
   const currentIds = activeDeliveries.map(t => t.id);
 
   // If this is not the first check and we have newly assigned teles, play sound notification
@@ -419,6 +450,29 @@ async function loadMyDeliveries() {
   updateMapOverlays(activeDeliveries);
 
   renderTeleCards(activeDeliveries);
+}
+
+function formatOrderDateForPWA(dateText, createdAt) {
+  const ts = createdAt ? new Date(createdAt) : (dateText ? parseOrderDate(dateText) : new Date());
+  if (isNaN(ts.getTime())) return dateText || 'Agora';
+  const hrs = String(ts.getHours()).padStart(2, '0');
+  const mins = String(ts.getMinutes()).padStart(2, '0');
+  const day = String(ts.getDate()).padStart(2, '0');
+  const month = String(ts.getMonth() + 1).padStart(2, '0');
+  
+  const now = new Date();
+  if (ts.getDate() === now.getDate() && ts.getMonth() === now.getMonth() && ts.getFullYear() === now.getFullYear()) {
+    return `${hrs}:${mins}`;
+  }
+  return `${day}/${month}, ${hrs}:${mins}`;
+}
+
+function getFixedPriceByAddress(address) {
+  const addr = (address || '').toLowerCase();
+  if (addr.includes('esteio')) {
+    return 10.00;
+  }
+  return 8.00;
 }
 
 function renderTeleCards(deliveries) {
@@ -439,6 +493,14 @@ function renderTeleCards(deliveries) {
   deliveries.forEach(order => {
     const isPickup   = order.status === 'A caminho da coleta';
     const isTransit  = order.status === 'Em rota de entrega';
+
+    const fixedPrice = getFixedPriceByAddress(order.address);
+    const valorRepasseLiquido = fixedPrice * 0.90;
+
+    // Rule 2: Address Flow on UI
+    const displayAddress = isPickup 
+      ? 'Rua Ana Rosa 221, Ipiranga - Sapucaia' 
+      : (order.address || 'Sem endereço');
 
     let mapsUrl = '';
     if (isPickup) {
@@ -463,6 +525,42 @@ function renderTeleCards(deliveries) {
       }
     }
 
+    const paymentMethod = getPaymentMethod(order);
+    const isIntegration = paymentMethod.toLowerCase().includes('ifood') || paymentMethod.toLowerCase().includes('99food');
+    
+    // Format payment status text
+    const isOnline = paymentMethod.toLowerCase().includes('pago');
+    let paymentBadge = 'A combinar';
+    if (paymentMethod.toLowerCase().includes('dinheiro')) paymentBadge = 'Dinheiro';
+    else if (paymentMethod.toLowerCase().includes('cartão') || paymentMethod.toLowerCase().includes('cartao')) paymentBadge = 'Cartão';
+    else if (paymentMethod.toLowerCase().includes('pix')) paymentBadge = 'PIX';
+    else if (paymentMethod.toLowerCase().includes('ifood')) paymentBadge = 'iFood';
+    else if (paymentMethod.toLowerCase().includes('99food')) paymentBadge = '99Food';
+
+    const cleanDist = getCleanDistance(order.dist);
+    const cleanTotalAmount = order.total_order_amount || order.price || 'R$ 0,00';
+    
+    const paymentText = isOnline
+      ? `${paymentBadge} - ${order.client || 'Plataforma'} Pago: ${cleanTotalAmount}`
+      : `${paymentBadge} - Cobrar na Entrega: ${cleanTotalAmount}`;
+
+    // Parse items count from cargo
+    let itemsCount = 1;
+    if (order.cargo) {
+      const cargoClean = order.cargo.replace(/🍔 Itens:\s*/g, '');
+      const parts = cargoClean.split('+').map(p => p.trim()).filter(Boolean);
+      let count = 0;
+      for (const part of parts) {
+        const match = part.match(/^(\d+)x?/i);
+        if (match) {
+          count += parseInt(match[1]) || 1;
+        } else {
+          count += 1;
+        }
+      }
+      if (count > 0) itemsCount = count;
+    }
+
     const card = document.createElement('div');
     card.className = 'pwa-tele-card';
     card.innerHTML = `
@@ -470,21 +568,72 @@ function renderTeleCards(deliveries) {
         <strong class="pwa-tele-id">${order.id}</strong>
         <span class="pwa-tele-status ${order.status_class || 'status-progress'}">${order.status}</span>
       </div>
-      <div class="pwa-tele-body">
-        <div class="pwa-tele-row">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-          <span>${order.address}</span>
+      <div class="pwa-tele-body" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;">
+        
+        <!-- Customer Details -->
+        <div>
+          <span style="color: var(--muted); font-size: 0.8rem;">Nome do Cliente</span>
+          <div style="font-weight: 600; color: var(--text); margin-top: 2px;">Nome: ${order.destName || order.dest_name || 'Cliente'}</div>
         </div>
-        <div class="pwa-tele-row pwa-tele-meta">
-          <span>Distância: <strong>${order.dist}</strong></span>
-          <span>Taxa: <strong class="pwa-highlight">${order.price}</strong></span>
+
+        <!-- Destination Address (Bold Highlighted) -->
+        <div style="margin-top: 4px;">
+          <span style="color: var(--muted); font-size: 0.8rem;">Endereço de Entrega</span>
+          <div style="font-weight: 700; color: #fff; font-size: 0.95rem; line-height: 1.4; margin-top: 2px; display: flex; align-items: flex-start; gap: 6px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+            <span>${displayAddress}</span>
+          </div>
         </div>
-        <div style="margin-top: 10px;">
-          <a href="${mapsUrl}" target="_blank" class="pwa-btn pwa-btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-size: 0.8rem; padding: 8px 12px; background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); font-weight: 600; cursor: pointer;">
+
+        <!-- Order Metadata -->
+        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: var(--muted);">Horário do Pedido:</span>
+            <span style="color: var(--text); font-weight: 500;">Pedido feito em: ${formatOrderDateForPWA(order.date, order.created_at)}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: var(--muted);">Quantidade de Itens:</span>
+            <span style="color: var(--text); font-weight: 500;">Itens: ${itemsCount} itens</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: var(--muted);">Distância da Rota:</span>
+            <span style="color: var(--text); font-weight: 600;">${cleanDist}</span>
+          </div>
+        </div>
+
+        <!-- Financial Summary -->
+        <div class="pwa-tele-financials" style="margin: 10px 0; padding: 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-direction: column; gap: 4px;">
+            <span style="color: var(--muted); font-size: 0.8rem;">Forma de Pagamento</span>
+            <strong style="font-size: 0.9rem;">${paymentText}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+            <span style="color: var(--muted);">Valor total do pedido:</span>
+            <strong style="color: var(--text); font-size: 1rem;">${cleanTotalAmount}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+            <span style="color: var(--success); font-weight: 600;">Recebido da Tele:</span>
+            <strong style="font-size: 1.15rem; color: var(--primary); font-family: var(--font-display);">${formatMoney(valorRepasseLiquido)}</strong>
+          </div>
+        </div>
+
+        <!-- Google Maps Link -->
+        <div style="margin-top: 4px;">
+          <a href="${mapsUrl}" target="_blank" class="pwa-btn pwa-btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-size: 0.8rem; padding: 8px 12px; background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid var(--border); border-radius: var(--radius); font-weight: 600; cursor: pointer;">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
             Abrir no Google Maps
           </a>
         </div>
+        
+        <!-- PWA Code Verification Trava -->
+        ${isTransit && isIntegration ? `
+          <div class="pwa-code-verification-container" style="margin-top: 10px; padding: 12px; background: rgba(255, 183, 0, 0.04); border: 1px solid rgba(255, 183, 0, 0.15); border-radius: var(--radius); width: 100%;">
+            <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
+              Código de confirmação do cliente (4 dígitos)
+            </label>
+            <input type="number" id="confirmation_code" placeholder="Insira o código de confirmação do cliente" style="width: 100%; height: 42px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); color: #fff; text-align: center; font-size: 1.1rem; font-weight: 800; outline: none; transition: border-color 0.2s;" oninput="if(this.value.length > 4) this.value = this.value.slice(0, 4);" />
+          </div>
+        ` : ''}
       </div>
       <div class="pwa-tele-footer">
         ${isPickup ? `
@@ -594,6 +743,24 @@ async function confirmDelivery(deliveryId) {
   const btn = event.target.closest('button');
   if (btn) { btn.disabled = true; btn.innerText = 'Finalizando...'; }
 
+  const order = activeDeliveriesList.find(d => d.id === deliveryId);
+  const paymentMethod = getPaymentMethod(order || {});
+  const isIntegration = paymentMethod.toLowerCase().includes('ifood') || paymentMethod.toLowerCase().includes('99food');
+
+  if (isIntegration) {
+    const cardElement = btn ? btn.closest('.pwa-tele-card') : null;
+    const codeInput = cardElement ? cardElement.querySelector('#confirmation_code') : document.getElementById('confirmation_code');
+    const codeValue = codeInput ? codeInput.value.trim() : '';
+
+    const correctCode = String(order?.confirmation_code || '').trim() || '1234';
+
+    if (!codeValue || codeValue !== correctCode) {
+      alert("Código incorreto! Solicite os 4 dígitos corretos ao cliente.");
+      if (btn) { btn.disabled = false; btn.innerText = 'Confirmar Entrega'; }
+      return;
+    }
+  }
+
   try {
     const { data: fleetRider, error: fleetErr } = await db
       .from('fleet')
@@ -702,13 +869,18 @@ function subscribeRealtime() {
         const wasMine = payload.old && payload.old.rider === riderName;
         const isMine = payload.new && payload.new.rider === riderName;
         
-        if (!wasMine && isMine) {
+        // Cache shield against Supabase payload.old column restrictions
+        const isAlreadyKnown = knownActiveTeleIds && knownActiveTeleIds.includes(payload.new.id);
+        const isNewAssignment = isMine && !isAlreadyKnown;
+        const isRemoval = !isMine && isAlreadyKnown;
+
+        if (isNewAssignment) {
           sendWebNotification("Nova Tele Atribuída! 🏍️", `A tele ${payload.new.id} foi atribuída a você.`);
           playNotificationSound();
           loadMyDeliveries();
           loadReportsData();
           loadWeeklyBalance();
-        } else if (wasMine && !isMine) {
+        } else if (isRemoval) {
           sendWebNotification("Tele Removida! ❌", `A tele ${payload.new.id} foi removida de você.`);
           playNotificationSound();
           loadMyDeliveries();
@@ -888,16 +1060,46 @@ function placeRiderMarker(lat, lng) {
 function startGeolocation() {
   if (!navigator.geolocation) return;
 
+  // Initialize battery API
+  if (navigator.getBattery && currentBatteryLevel === null) {
+    try {
+      navigator.getBattery().then(battery => {
+        currentBatteryLevel = Math.round(battery.level * 100);
+        battery.addEventListener('levelchange', async () => {
+          currentBatteryLevel = Math.round(battery.level * 100);
+          if (db && currentRider) {
+            try {
+              await db
+                .from('fleet')
+                .update({ battery_level: currentBatteryLevel })
+                .eq('id', currentRider.id);
+            } catch (err) {
+              console.error("Failed to update battery level in background:", err);
+            }
+          }
+        });
+      }).catch(err => {
+        console.warn("navigator.getBattery rejected:", err);
+      });
+    } catch (err) {
+      console.warn("navigator.getBattery exception:", err);
+    }
+  }
+
   watchId = navigator.geolocation.watchPosition(
     async (pos) => {
       lastPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       if (riderMap) placeRiderMarker(lastPosition.lat, lastPosition.lng);
 
-      // Update location in Supabase fleet table in real-time
+      // Update location and battery level in Supabase fleet table in real-time
       if (db && currentRider) {
+        const updatePayload = { lat: lastPosition.lat, lng: lastPosition.lng };
+        if (currentBatteryLevel !== null) {
+          updatePayload.battery_level = currentBatteryLevel;
+        }
         await db
           .from('fleet')
-          .update({ lat: lastPosition.lat, lng: lastPosition.lng })
+          .update(updatePayload)
           .eq('id', currentRider.id);
       }
     },
@@ -1210,7 +1412,7 @@ async function loadWeeklyBalance() {
 
   const { data, error } = await db
     .from('client_history')
-    .select('price, date')
+    .select('price, date, address')
     .eq('rider', currentRider.name)
     .eq('status', 'Entregue');
 
@@ -1220,7 +1422,8 @@ async function loadWeeklyBalance() {
   data.forEach(order => {
     const orderDate = parseOrderDate(order.date);
     if (isDateInCurrentWeek(orderDate)) {
-      totalWeekly += parseMoney(order.price);
+      const fixedPrice = getFixedPriceByAddress(order.address);
+      totalWeekly += fixedPrice * 0.90;
     }
   });
 
@@ -1466,7 +1669,14 @@ async function loadReportsData() {
     return;
   }
 
-  riderHistory = data;
+  riderHistory = (data || []).map(item => {
+    const fixedPrice = getFixedPriceByAddress(item.address);
+    const valorRepasseLiquido = fixedPrice * 0.90;
+    return {
+      ...item,
+      price: `R$ ${valorRepasseLiquido.toFixed(2).replace('.', ',')}`
+    };
+  });
   renderReports(currentPeriod);
   loadWeeklyClosures();
 }
@@ -1656,7 +1866,7 @@ async function loadWeeklyClosures() {
       }
 
       weeks[key].deliveriesCount += 1;
-      weeks[key].gross += parseMoney(order.price);
+      weeks[key].gross += getFixedPriceByAddress(order.address);
       if (order.payment_status !== 'Pago') {
         weeks[key].isPaid = false;
       }

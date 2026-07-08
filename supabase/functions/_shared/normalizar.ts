@@ -14,6 +14,8 @@ export interface TeleNormalizada {
   itens: { nome: string; qtd: number; obs?: string }[]
   food99_app_shop_id?: string | null
   loja_id?: string | null
+  total_order_amount?: number | null
+  confirmation_code?: string | null
 }
 
 // -------- iFood --------
@@ -22,6 +24,11 @@ export interface TeleNormalizada {
 export function normalizarIfood(pedido: any): TeleNormalizada {
   const entrega = pedido?.delivery ?? {}
   const endereco = entrega?.deliveryAddress ?? {}
+  
+  const phone = String(pedido?.customer?.phone?.number || pedido?.customer?.phone || '').replace(/\D/g, '')
+  const phoneCode = phone.length >= 4 ? phone.slice(-4) : '1234'
+  const confirmation_code = pedido?.delivery?.deliveryCode || pedido?.delivery?.verificationCode || phoneCode
+
   return {
     origem: 'ifood',
     external_id: String(pedido?.id ?? pedido?.orderId ?? ''),
@@ -38,6 +45,7 @@ export function normalizarIfood(pedido: any): TeleNormalizada {
       qtd: it?.quantity ?? 1,
       obs: it?.observations || undefined,
     })),
+    confirmation_code,
   }
 }
 
@@ -50,11 +58,17 @@ export function normalizar99food(env: any): TeleNormalizada {
   const addr = info?.receive_address ?? {}
   const orderId = String(data?.order_id ?? info?.order_id ?? '')
 
+  const code = info?.verification_code || info?.delivery_code || info?.verificationCode || '';
+  const phone = String(addr?.phone || addr?.mobile || '').replace(/\D/g, '');
+  const phoneCode = phone.length >= 4 ? phone.slice(-4) : '1234';
+  const confirmation_code = code || phoneCode;
+
   const endereco =
     addr?.poi_address ||
     [addr?.street_name, addr?.street_number, addr?.district, addr?.city].filter(Boolean).join(', ')
 
-  const centavos = info?.price?.order_price ?? info?.price?.real_pay_price
+  const freteCentavos = info?.price?.send_price
+  const totalCentavos = info?.price?.order_price ?? info?.price?.real_pay_price
   const lat = Number(addr?.poi_lat) || null
   const lng = Number(addr?.poi_lng) || null
 
@@ -67,13 +81,15 @@ export function normalizar99food(env: any): TeleNormalizada {
     cidade: addr?.city || addr?.district || null,
     lat,
     lng,
-    valor: centavos != null ? Number(centavos) / 100 : null,
+    valor: freteCentavos != null ? Number(freteCentavos) / 100 : null,
+    total_order_amount: totalCentavos != null ? Number(totalCentavos) / 100 : null,
     itens: (info?.order_items ?? []).map((it: any) => ({
       nome: it?.name ?? 'Item',
       qtd: it?.amount ?? 1,
       obs: (it?.sub_item_list ?? []).map((s: any) => s?.name).filter(Boolean).join(', ') || undefined,
     })),
     food99_app_shop_id: info?.shop?.app_shop_id ?? data?.app_shop_id ?? env?.app_shop_id ?? null,
+    confirmation_code,
   }
 }
 

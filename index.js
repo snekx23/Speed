@@ -1,15 +1,40 @@
 export default {
   async fetch(request, env, ctx) {
     const response = await env.ASSETS.fetch(request);
-    
-    // Clona a resposta para permitir modificação de cabeçalhos
-    const newResponse = new Response(response.body, response);
     const url = new URL(request.url);
     const path = url.pathname;
     
-    // Desabilita cache para arquivos HTML, JS, CSS e JSON para evitar cache travado
+    // Inject local environment variables dynamically into HTML entry points
+    if (path === '/' || path === '/index.html' || path === '/motoboy.html') {
+      let html = await response.text();
+      
+      const configScript = `
+  <script>
+    window.SUPABASE_CONFIG = {
+      url: "${env.SUPABASE_URL || 'https://faowxiyxjfogkoynsohj.supabase.co'}",
+      key: "${env.SUPABASE_ANON_KEY || 'sb_publishable_UFy_HB0JaKUVCvHUlHSQ0Q_2HFOk4_V'}"
+    };
+    window.MAPBOX_ACCESS_TOKEN = "${env.MAPBOX_ACCESS_TOKEN || ''}";
+  </script>
+`;
+      html = html.replace('<head>', '<head>' + configScript);
+      
+      return new Response(html, {
+        headers: {
+          ...Object.fromEntries(response.headers.entries()),
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+    }
+
+    // Clone response to modify headers for assets/scripts
+    const newResponse = new Response(response.body, response);
+    
+    // Disable caching for developments
     if (
-      path === '/' ||
       path.endsWith('.html') ||
       path.endsWith('.js') ||
       path.endsWith('.css') ||
