@@ -254,6 +254,176 @@ async function fetchClientHistory() {
   }
 }
 
+function parseLocalDate(dateStr) {
+  if (!dateStr) return null;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+window.searchActiveRidersForExtract = async function() {
+  const startDateStr = document.getElementById('extract-start-date').value;
+  const endDateStr = document.getElementById('extract-end-date').value;
+
+  if (!startDateStr || !endDateStr) {
+    alert("Por favor, selecione as datas inicial e final.");
+    return;
+  }
+
+  const start = parseLocalDate(startDateStr);
+  if (start) start.setHours(0, 0, 0, 0);
+
+  const end = parseLocalDate(endDateStr);
+  if (end) end.setHours(23, 59, 59, 999);
+
+  if (start > end) {
+    alert("A data inicial não pode ser posterior à data final.");
+    return;
+  }
+
+  if (!supabaseClient) {
+    alert("Supabase não está conectado.");
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('client_history')
+      .select('rider, created_at')
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString());
+
+    if (error) throw error;
+
+    const activeRiderNames = [...new Set(data
+      .map(item => item.rider)
+      .filter(name => name && name !== 'Nenhum' && name !== 'Aguardando...' && name !== 'Sem entregador')
+    )];
+
+    const grid = document.getElementById('extract-riders-grid');
+    grid.innerHTML = '';
+
+    if (activeRiderNames.length === 0) {
+      grid.innerHTML = '<p class="text-muted" style="grid-column: 1 / -1;">Nenhum motoboy ativo encontrado neste período.</p>';
+    } else {
+      activeRiderNames.forEach((riderName, index) => {
+        const div = document.createElement('div');
+        div.style.display = 'flex';
+        div.style.alignItems = 'center';
+        div.style.gap = '8px';
+        div.style.background = 'rgba(255, 255, 255, 0.02)';
+        div.style.padding = '10px 14px';
+        div.style.borderRadius = 'var(--border-radius-sm)';
+        div.style.border = '1px solid var(--border-color)';
+
+        div.innerHTML = `
+          <input type="radio" id="extract-rider-${index}" name="extract-rider-selection" value="${escapeHtml(riderName)}" style="accent-color: var(--primary); cursor: pointer;">
+          <label for="extract-rider-${index}" style="color: #fff; font-size: 0.85rem; cursor: pointer; user-select: none; font-weight: 500;">
+            ${escapeHtml(riderName)}
+          </label>
+        `;
+        grid.appendChild(div);
+      });
+    }
+
+    document.getElementById('extract-riders-card').style.display = 'block';
+    document.getElementById('extract-details-card').style.display = 'none';
+
+    if (window.lucide) lucide.createIcons();
+
+  } catch (err) {
+    console.error("Error searching active riders:", err);
+    alert("Erro ao buscar profissionais no Supabase.");
+  }
+};
+
+window.generateRiderExtract = async function() {
+  const selectedRadio = document.querySelector('input[name="extract-rider-selection"]:checked');
+  if (!selectedRadio) {
+    alert("Por favor, selecione um profissional da lista.");
+    return;
+  }
+
+  const riderName = selectedRadio.value;
+  const startDateStr = document.getElementById('extract-start-date').value;
+  const endDateStr = document.getElementById('extract-end-date').value;
+
+  const start = parseLocalDate(startDateStr);
+  if (start) start.setHours(0, 0, 0, 0);
+
+  const end = parseLocalDate(endDateStr);
+  if (end) end.setHours(23, 59, 59, 999);
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('client_history')
+      .select('*')
+      .eq('rider', riderName)
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString())
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    document.getElementById('extract-rider-title').innerText = `Extrato de ${riderName}`;
+    const startFormatted = start.toLocaleDateString('pt-BR');
+    const endFormatted = end.toLocaleDateString('pt-BR');
+    document.getElementById('extract-rider-period').innerText = `Período selecionado: ${startFormatted} até ${endFormatted}`;
+
+    let totalServices = 0;
+    let totalPayout = 0;
+
+    const tbody = document.getElementById('extract-details-table-body');
+    tbody.innerHTML = '';
+
+    data.forEach(item => {
+      totalServices++;
+      
+      const grossPrice = getFixedPriceByAddress(item.address);
+      const netPayout = grossPrice * 0.90;
+      totalPayout += netPayout;
+
+      let displayId = item.id;
+      if (item.id.toLowerCase().includes('99food')) {
+        displayId = item.id.replace(/99Food\s*#?/gi, '');
+      } else if (item.id.toLowerCase().includes('ifood')) {
+        displayId = item.id.replace(/iFood\s*#?/gi, '');
+      }
+
+      const tr = document.createElement('tr');
+      tr.className = 'ops-table-row';
+
+      tr.innerHTML = `
+        <td><strong>${escapeHtml(displayId)}</strong></td>
+        <td>
+          <div style="display: flex; flex-direction: column;">
+            <strong style="color: #fff;">${escapeHtml(item.dest_name || 'Cliente')}</strong>
+            <span class="text-muted" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; margin-top: 2px;">
+              <i data-lucide="map-pin" style="width: 12px; height: 12px; flex-shrink: 0; color: #ffb700;"></i>
+              ${escapeHtml(item.address)}
+            </span>
+          </div>
+        </td>
+        <td>${formatMoneyBR(grossPrice)}</td>
+        <td><strong class="text-yellow" style="color: var(--primary) !important;">${formatMoneyBR(netPayout)}</strong></td>
+        <td>${escapeHtml(item.date)}</td>
+        <td><span class="status-indicator ${escapeHtml(item.status_class || 'status-neutral')}">${escapeHtml(item.status)}</span></td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('extract-total-services').innerText = totalServices;
+    document.getElementById('extract-total-payout').innerText = formatMoneyBR(totalPayout);
+
+    document.getElementById('extract-details-card').style.display = 'block';
+
+    if (window.lucide) lucide.createIcons();
+
+  } catch (err) {
+    console.error("Error generating rider extract:", err);
+    alert("Erro ao buscar os registros de extrato do profissional.");
+  }
+};
+
 async function fetchPendingDeliveries() {
   if (!supabaseClient) return;
   try {
@@ -808,6 +978,19 @@ async function switchDashboardTab(targetTab) {
     populateCreditRiderSelect();
     populateCreditRiderSearchDropdown();
     renderRiderCredits();
+  } else if (targetTab === 'owner-rider-extract') {
+    const now = new Date();
+    const firstDay = new Date(now.setDate(now.getDate() - now.getDay())); // Sunday
+    const lastDay = new Date(now.setDate(now.getDate() - now.getDay() + 6)); // Saturday
+    
+    const startInput = document.getElementById('extract-start-date');
+    const endInput = document.getElementById('extract-end-date');
+    if (startInput && !startInput.value) {
+      startInput.value = firstDay.toISOString().split('T')[0];
+    }
+    if (endInput && !endInput.value) {
+      endInput.value = lastDay.toISOString().split('T')[0];
+    }
   } else if (targetTab === 'owner-settings') {
     await fetchFleet();
     renderRiderSettings();
