@@ -756,6 +756,7 @@ async function switchDashboardTab(targetTab) {
   const activeTabEl = document.getElementById(`tab-${targetTab}`);
   if (activeTabEl) {
     activeTabEl.classList.add('active');
+    activeTabEl.classList.remove('hidden');
   }
 
   const ownerFab = document.getElementById('owner-fab-btn');
