@@ -889,16 +889,9 @@
             </div>
 
             <!-- Dashboard Stats Row for Credits -->
-            <div class="dashboard-stats-grid" style="margin-bottom: 20px;">
-              <div class="stat-card">
-                <div class="stat-card-icon" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success);">
-                  <i data-lucide="plus-circle"></i>
-                </div>
-                <div class="stat-card-info">
-                  <span>Total Lançado (Período)</span>
-                  <h3 id="credits-period-total">R$ 0,00</h3>
-                </div>
-              </div>
+            <div class="metric-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md); max-width: 260px; margin-bottom: 20px;">
+              <span style="font-size: 0.85rem; color: var(--color-text-muted);">Total Lançado (Período)</span>
+              <h2 id="credits-period-total" style="margin: 8px 0 0 0; color: var(--primary); font-size: 1.8rem; font-weight: 700;">R$ 0,00</h2>
             </div>
 
             <!-- Two Column Layout -->
@@ -938,33 +931,35 @@
                 </div>
                 <div class="card-body">
                   <form id="credit-register-form" onsubmit="handleRegisterCredit(event)">
-                    <div class="form-group" style="margin-bottom: 16px;">
-                      <label for="credit-rider-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Motoboy</label>
-                      <select id="credit-rider-select" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
-                        <option value="">Selecione um motoboy...</option>
-                        <!-- Populated by JS -->
-                      </select>
-                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                      <div class="form-group">
+                        <label for="credit-rider-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Motoboy</label>
+                        <select id="credit-rider-select" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                          <option value="">Selecione um motoboy...</option>
+                          <!-- Populated by JS -->
+                        </select>
+                      </div>
 
-                    <div class="form-group" style="margin-bottom: 16px;">
-                      <label for="credit-input-amount" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Valor do Crédito (R$)</label>
-                      <div class="input-wrapper" style="position: relative;">
-                        <i data-lucide="dollar-sign" class="input-icon" style="position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; color: var(--color-text-muted);"></i>
-                        <input type="number" step="0.01" min="0.01" id="credit-input-amount" required placeholder="0.00" style="padding: 10px 12px 10px 36px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+                      <div class="form-group">
+                        <label for="credit-input-amount" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Valor do Crédito (R$)</label>
+                        <div class="input-wrapper" style="position: relative;">
+                          <i data-lucide="dollar-sign" class="input-icon" style="position: absolute; left: 12px; top: 12px; width: 16px; height: 16px; color: var(--color-text-muted);"></i>
+                          <input type="number" step="0.01" min="0.01" id="credit-input-amount" required placeholder="0.00" style="padding: 10px 12px 10px 36px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+                        </div>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="credit-input-date" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Data de Competência</label>
+                        <input type="date" id="credit-input-date" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                      </div>
+
+                      <div class="form-group" style="grid-column: 1 / -1;">
+                        <label for="credit-input-description" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Descrição / Motivo</label>
+                        <textarea id="credit-input-description" rows="3" required placeholder="Ex: Diária extra, Bônus de meta batida, etc..." style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; resize: vertical;"></textarea>
                       </div>
                     </div>
 
-                    <div class="form-group" style="margin-bottom: 16px;">
-                      <label for="credit-input-date" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Data de Competência</label>
-                      <input type="date" id="credit-input-date" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
-                    </div>
-
-                    <div class="form-group" style="margin-bottom: 20px;">
-                      <label for="credit-input-description" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Descrição / Motivo</label>
-                      <textarea id="credit-input-description" rows="3" required placeholder="Ex: Diária extra, Bônus de meta batida, etc..." style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; resize: vertical;"></textarea>
-                    </div>
-
-                    <button type="submit" class="btn btn-primary btn-block" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 12px;">
+                    <button type="submit" class="btn btn-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600; padding: 12px 24px; min-width: 180px; margin-left: auto;">
                       <span>Lançar Crédito</span> <i data-lucide="plus"></i>
                     </button>
                   </form>
