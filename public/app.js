@@ -384,6 +384,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize lucide icons
   lucide.createIcons();
 
+  // Eye toggle listener for password visibility
+  const toggleBtn = document.getElementById('toggle-password');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', function() {
+      const passwordInput = document.getElementById('password');
+      const eyeIcon = this.querySelector('i');
+      if (passwordInput && eyeIcon) {
+        if (passwordInput.type === 'password') {
+          passwordInput.type = 'text';
+          eyeIcon.setAttribute('data-lucide', 'eye-off');
+        } else {
+          passwordInput.type = 'password';
+          eyeIcon.setAttribute('data-lucide', 'eye');
+        }
+        if (window.lucide) lucide.createIcons();
+      }
+    });
+  }
+
   // Listen to payment method changes in order request form to toggle change input
   const paymentSelect = document.getElementById('payment-method');
   if (paymentSelect) {
@@ -495,115 +514,38 @@ function switchLoginTab(profile) {
 async function handleLogin(event) {
   if (event) event.preventDefault();
   
-  const emailInput = document.getElementById('username').value.trim();
+  const loginInput = document.getElementById('username').value.trim().toLowerCase();
   const passwordInput = document.getElementById('password').value.trim();
 
   // Show loader during auth
   const loader = document.getElementById('loader');
   if (loader) loader.classList.remove('hidden');
 
-  if (supabaseClient) {
-    try {
-      // 1. Authenticate with Supabase Auth
-      const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
-        email: emailInput,
-        password: passwordInput
-      });
+  // Capture the active login tab
+  const activeTabEl = document.querySelector('.login-tabs .tab-btn.active');
+  const activeTab = activeTabEl ? activeTabEl.getAttribute('data-tab') : 'owner';
 
-      if (authError) {
-        if (loader) loader.classList.add('hidden');
-        alert('E-mail ou senha incorretos.');
-        return;
-      }
-
-      const user = authData.user;
-
-      // 2. Fetch profile role from public.perfis
-      const { data: perfil, error: perfilError } = await supabaseClient
-        .from('perfis')
-        .select('papel')
-        .eq('id', user.id)
-        .single();
-
-      if (perfilError || !perfil) {
-        if (loader) loader.classList.add('hidden');
-        await supabaseClient.auth.signOut();
-        alert('Perfil de acesso não encontrado para este usuário.');
-        return;
-      }
-
-      // Map 'admin' -> 'owner', 'parceiro' -> 'client'
-      const matchedRole = (perfil.papel === 'admin') ? 'owner' : 'client';
-
-      // 3. Capture active tab selected by user
-      const activeTabEl = document.querySelector('.login-tabs .tab-btn.active');
-      const activeTab = activeTabEl ? activeTabEl.getAttribute('data-tab') : 'owner';
-
-      // 4. Role Shield Verification
-      if (activeTab === 'owner' && matchedRole !== 'owner') {
-        if (loader) loader.classList.add('hidden');
-        await supabaseClient.auth.signOut();
-        alert('Este usuário não possui permissões administrativas.');
-        return;
-      }
-
-      if (activeTab === 'client' && matchedRole !== 'client') {
-        if (loader) loader.classList.add('hidden');
-        await supabaseClient.auth.signOut();
-        alert('Este usuário não é um parceiro comercial cadastrado.');
-        return;
-      }
-
-      // Map active profile to credentials map key for local app logic
-      let matchedProfile = 'owner';
-      for (const [profileKey, creds] of Object.entries(mockData.credentials)) {
-        if (creds.email.toLowerCase() === emailInput.toLowerCase()) {
-          matchedProfile = profileKey;
-          break;
-        }
-      }
-
-      mockData.activeProfile = matchedProfile;
-
-    } catch (err) {
-      console.error("Auth error:", err);
+  // Strict credentials validation
+  if (activeTab === 'owner') {
+    if (loginInput === 'adm' && passwordInput === 'admin123') {
+      mockData.activeProfile = 'owner';
+    } else {
       if (loader) loader.classList.add('hidden');
-      alert('Erro inesperado de rede/autenticação.');
+      alert('Usuário ou senha incorretos para o perfil selecionado.');
+      return;
+    }
+  } else if (activeTab === 'client') {
+    if ((loginInput === 'boraaçai' || loginInput === 'boraacai') && passwordInput === 'cliente123') {
+      mockData.activeProfile = 'client_bora';
+    } else {
+      if (loader) loader.classList.add('hidden');
+      alert('Usuário ou senha incorretos para o perfil selecionado.');
       return;
     }
   } else {
-    // Local fallback for offline/development unit testing
-    let matchedProfile = null;
-    for (const [profileKey, creds] of Object.entries(mockData.credentials)) {
-      if (creds.email.toLowerCase() === emailInput.toLowerCase() && creds.pass === passwordInput) {
-        matchedProfile = profileKey;
-        break;
-      }
-    }
-
-    if (!matchedProfile) {
-      if (loader) loader.classList.add('hidden');
-      alert('E-mail ou senha incorretos.');
-      return;
-    }
-
-    const activeTabEl = document.querySelector('.login-tabs .tab-btn.active');
-    const activeTab = activeTabEl ? activeTabEl.getAttribute('data-tab') : 'owner';
-    const matchedRole = (matchedProfile === 'owner') ? 'owner' : 'client';
-
-    if (activeTab === 'owner' && matchedRole !== 'owner') {
-      if (loader) loader.classList.add('hidden');
-      alert('Este usuário não possui permissões administrativas.');
-      return;
-    }
-
-    if (activeTab === 'client' && matchedRole !== 'client') {
-      if (loader) loader.classList.add('hidden');
-      alert('Este usuário não é um parceiro comercial cadastrado.');
-      return;
-    }
-
-    mockData.activeProfile = matchedProfile;
+    if (loader) loader.classList.add('hidden');
+    alert('Aba de perfil inválida.');
+    return;
   }
 
   // Finalize UI transition

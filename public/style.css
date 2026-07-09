@@ -3298,3 +3298,34 @@ input:checked + .slider:before {
   box-shadow: 0 12px 36px rgba(245, 158, 11, 0.6) !important;
 }
 
+/* Password Eye Toggle Styling */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.password-wrapper input {
+  padding-right: 42px !important;
+}
+#toggle-password {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  transition: color 0.2s ease;
+  z-index: 2;
+}
+#toggle-password:hover {
+  color: var(--primary);
+}
+
