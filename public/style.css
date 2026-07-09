@@ -755,19 +755,19 @@ select {
   transition: color var(--transition-fast);
 }
 
-.nav-item:hover, .nav-item.active {
+.nav-item:hover {
   color: var(--color-text);
   background-color: rgba(255, 210, 0, 0.04);
 }
 
 .nav-item.active {
-  background-color: var(--primary-glow);
-  color: var(--primary);
+  background-color: var(--primary-glow) !important;
+  color: var(--primary) !important;
   font-weight: 600;
 }
 
 .nav-item.active i {
-  color: var(--primary);
+  color: var(--primary) !important;
 }
 
 .nav-item:disabled {

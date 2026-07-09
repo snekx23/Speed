@@ -653,11 +653,11 @@ function handleLogout() {
 async function switchDashboardTab(targetTab) {
   localStorage.setItem('activeDashboardTab', targetTab);
   // Update Sidebar active items
-  document.querySelectorAll('.sidebar-nav .nav-item').forEach(item => {
+  document.querySelectorAll('.nav-item').forEach(item => {
     item.classList.remove('active');
   });
   
-  const navItem = document.querySelector(`.sidebar-nav .nav-item[data-tab="${targetTab}"]`);
+  const navItem = document.querySelector(`.nav-item[data-tab="${targetTab}"]`);
   if (navItem) {
     navItem.classList.add('active');
   }
