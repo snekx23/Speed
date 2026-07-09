@@ -34,6 +34,8 @@ const mockData = {
 let commercesList = [];
 let currentTeleFilter = 'all';
 let teleViewMode = 'list';
+let currentClientTeleFilter = 'all';
+let clientTeleViewMode = 'list';
 
 async function fetchCommerces() {
   if (!supabaseClient) {
@@ -773,8 +775,7 @@ async function switchDashboardTab(targetTab) {
   } else if (targetTab === 'client-teles') {
     await fetchPendingDeliveries();
     await fetchClientHistory();
-    renderClientPendingDeliveries();
-    renderClientActiveDeliveries();
+    renderClientTelesUnified();
   } else if (targetTab === 'client-support') {
     const dot = document.getElementById('client-chat-dot');
     if (dot) dot.classList.add('hidden');
@@ -2601,37 +2602,38 @@ function renderClientMapMarkers(centerCoords) {
     clientCentralMarker.setLatLng(centerLatLng);
   }
 
-  const ridersLocations = [
-    { id: 'MB-101', name: 'Gui', offset: [0.003, -0.004], status: 'Disponível', statusColor: '#22c55e' },
-    { id: 'MB-102', name: 'Garcia', offset: [-0.002, 0.006], status: 'Em rota', statusColor: '#ffb700' },
-    { id: 'MB-103', name: 'Gomes', offset: [0.005, 0.002], status: 'Em Coleta', statusColor: '#ffb700' },
-    { id: 'MB-104', name: 'Biel', offset: [-0.006, -0.003], status: 'Em Descanso', statusColor: '#8e8e9f' },
-    { id: 'MB-105', name: 'Melo', offset: [0.002, 0.007], status: 'Disponível', statusColor: '#22c55e' }
-  ];
+  // Filter active/live riders with valid coordinates
+  const activeRiders = mockData.fleet.filter(rider => {
+    return rider.lat !== null && 
+           rider.lat !== undefined && 
+           !isNaN(parseFloat(rider.lat)) && 
+           rider.lng !== null && 
+           rider.lng !== undefined && 
+           !isNaN(parseFloat(rider.lng));
+  });
 
-  ridersLocations.forEach(rider => {
-    const mockRider = mockData.fleet.find(r => r.name === rider.name);
-    const currentStatus = mockRider ? mockRider.status : rider.status;
-    const currentStatusColor = mockRider 
-      ? (mockRider.status === 'Em Descanso' ? '#8e8e9f' : (mockRider.statusClass === 'status-progress' ? '#ffb700' : '#22c55e')) 
-      : rider.statusColor;
+  const currentRidersNames = new Set(activeRiders.map(r => r.name));
 
-    const hasRealGPS = mockRider && 
-                       mockRider.lat !== null && 
-                       mockRider.lat !== undefined && 
-                       !isNaN(parseFloat(mockRider.lat)) && 
-                       mockRider.lng !== null && 
-                       mockRider.lng !== undefined && 
-                       !isNaN(parseFloat(mockRider.lng));
-
-    let riderCoords;
-    if (hasRealGPS) {
-      riderCoords = [parseFloat(mockRider.lat), parseFloat(mockRider.lng)];
-    } else {
-      riderCoords = [centerCoords[0] + rider.offset[0], centerCoords[1] + rider.offset[1]];
+  // Remove markers for riders that are no longer active/valid
+  Object.keys(clientFleetMarkers).forEach(name => {
+    if (!currentRidersNames.has(name)) {
+      if (clientFleetMarkers[name] && clientFleetMarkers[name].setMap) {
+        clientFleetMarkers[name].setMap(null);
+      }
+      delete clientFleetMarkers[name];
     }
+  });
 
-    const isPulsing = currentStatus !== 'Em Descanso';
+  // Render active riders
+  activeRiders.forEach(rider => {
+    const riderLatLng = new google.maps.LatLng(parseFloat(rider.lat), parseFloat(rider.lng));
+    
+    // Status colors
+    const currentStatusColor = rider.status === 'Em Descanso' 
+      ? '#8e8e9f' 
+      : (rider.statusClass === 'status-progress' || rider.status === 'Em rota' || rider.status === 'Em Coleta' ? '#ffb700' : '#22c55e');
+
+    const isPulsing = rider.status !== 'Em Descanso';
     const markerHtml = `
       <div class="custom-map-marker" style="background-color: ${currentStatusColor}; box-shadow: 0 0 10px ${currentStatusColor}; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;">
         ${isPulsing ? `<div class="marker-pulse" style="border-color: ${currentStatusColor}; position: absolute; top: -5px; left: -5px; width: 24px; height: 24px; border: 2px solid ${currentStatusColor}; border-radius: 50%; animation: pulse-dot-anim 2.5s infinite;"></div>` : ''}
@@ -2639,7 +2641,6 @@ function renderClientMapMarkers(centerCoords) {
       </div>
     `;
 
-    const riderLatLng = new google.maps.LatLng(riderCoords[0], riderCoords[1]);
     let markerEntry = clientFleetMarkers[rider.name];
     if (markerEntry) {
       markerEntry.setLatLng(riderLatLng);
@@ -2678,19 +2679,10 @@ window.openClientRiderMapPopup = function(riderId) {
     </div>
   `;
 
-  const centerCoords = clientFleetCenterCoords;
-  const offsets = [[0.004, -0.006], [0.008, 0.012], [-0.005, 0.009], [-0.012, -0.004], [0.003, -0.015], [-0.009, 0.005]];
-  const index = mockData.fleet.findIndex(r => r.id === rider.id);
-  
   const hasRealGPS = rider.lat !== null && rider.lat !== undefined && !isNaN(parseFloat(rider.lat)) && rider.lng !== null && rider.lng !== undefined && !isNaN(parseFloat(rider.lng));
+  if (!hasRealGPS) return;
 
-  let coords;
-  if (hasRealGPS) {
-    coords = [parseFloat(rider.lat), parseFloat(rider.lng)];
-  } else {
-    const offset = offsets[index % offsets.length] || [0, 0];
-    coords = [centerCoords[0] + offset[0], centerCoords[1] + offset[1]];
-  }
+  const coords = [parseFloat(rider.lat), parseFloat(rider.lng)];
 
   if (clientFleetInfoWindow) {
     clientFleetInfoWindow.close();
@@ -3651,89 +3643,245 @@ async function dispatchDelivery(deliveryId, riderId) {
 
 
 
-function renderClientPendingDeliveries() {
-  const container = document.getElementById('client-pending-deliveries-container');
+window.setClientTeleViewMode = function(mode) {
+  clientTeleViewMode = mode;
+  document.querySelectorAll('#client-view-toggle-grid, #client-view-toggle-list').forEach(btn => btn.classList.remove('active'));
+  const btn = document.getElementById(`client-view-toggle-${mode}`);
+  if (btn) btn.classList.add('active');
+  renderClientTelesUnified();
+};
+
+window.setClientTeleFilter = function(filter) {
+  currentClientTeleFilter = filter;
+  document.querySelectorAll('.teles-filters .filter-pill').forEach(btn => {
+    if (btn.id.startsWith('client-filter-')) {
+      btn.classList.remove('active');
+    }
+  });
+  const btn = document.getElementById(`client-filter-${filter}`);
+  if (btn) btn.classList.add('active');
+  renderClientTelesUnified();
+};
+
+window.renderClientTelesUnified = function() {
+  const container = document.getElementById('client-teles-content-container');
   if (!container) return;
 
   const currentCreds = mockData.credentials[mockData.activeProfile];
   const currentCommerce = currentCreds ? currentCreds.commerceName : 'Parceiro Garra';
 
-  const filteredPending = mockData.pendingDeliveries.filter(d => d.client === currentCommerce);
+  const pendingList = mockData.pendingDeliveries.filter(d => d.client === currentCommerce);
+  const activeList = mockData.clientHistory.filter(o => o.client === currentCommerce && o.status !== 'Entregue' && o.status !== 'Concluído' && o.status !== 'Cancelado');
+  const completedList = mockData.clientHistory.filter(o => o.client === currentCommerce && (o.status === 'Entregue' || o.status === 'Concluído'));
+  const canceledList = mockData.clientHistory.filter(o => o.client === currentCommerce && o.status === 'Cancelado');
 
-  const pendingBadge = document.getElementById('client-pending-count-badge');
-  if (pendingBadge) pendingBadge.innerText = filteredPending.length + ' pendentes';
+  const pendingCount = pendingList.length;
+  const activeCount = activeList.length;
+  const completedCount = completedList.length;
+  const canceledCount = canceledList.length;
+  const allCount = pendingCount + activeCount + completedCount + canceledCount;
 
-  if (filteredPending.length === 0) {
+  const elAll = document.getElementById('client-count-all');
+  const elPending = document.getElementById('client-count-pending');
+  const elActive = document.getElementById('client-count-active');
+  const elCompleted = document.getElementById('client-count-completed');
+  const elCanceled = document.getElementById('client-count-canceled');
+
+  if (elAll) elAll.innerText = allCount;
+  if (elPending) elPending.innerText = pendingCount;
+  if (elActive) elActive.innerText = activeCount;
+  if (elCompleted) elCompleted.innerText = completedCount;
+  if (elCanceled) elCanceled.innerText = canceledCount;
+
+  const pendingItems = pendingList.map(d => {
+    const fixedPrice = getFixedPriceByAddress(d.address);
+    const priceFormatted = `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`;
+
+    return {
+      id: d.id,
+      type: 'pending',
+      client: d.client || 'Parceiro Garra',
+      destName: d.destName,
+      address: d.address,
+      dest_lat: d.dest_lat,
+      dest_lng: d.dest_lng,
+      dist: d.dist || '—',
+      price: priceFormatted,
+      payment: d.payment || 'A combinar',
+      cargo: d.cargo || 'Pedido',
+      rider: 'Aguardando...',
+      date: 'Hoje, Agora',
+      created_at: d.created_at,
+      status: 'Pendente',
+      statusClass: 'status-warning'
+    };
+  });
+
+  const historyItems = [...activeList, ...completedList, ...canceledList].map(o => {
+    let type = 'active';
+    if (o.status === 'Entregue' || o.status === 'Concluído') type = 'completed';
+    else if (o.status === 'Cancelado') type = 'canceled';
+    
+    const fixedPrice = getFixedPriceByAddress(o.address);
+    const priceFormatted = `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`;
+
+    return {
+      id: o.id,
+      type: type,
+      client: o.client || 'Parceiro Garra',
+      destName: o.destName,
+      address: o.address,
+      dest_lat: o.dest_lat,
+      dest_lng: o.dest_lng,
+      dist: o.dist || '—',
+      price: priceFormatted,
+      payment: o.payment || 'Pago',
+      cargo: o.cargo || 'Pedido',
+      rider: o.rider || 'Sem entregador',
+      date: o.date,
+      created_at: o.created_at,
+      status: o.status,
+      statusClass: o.statusClass || (o.status === 'Entregue' || o.status === 'Concluído' ? 'status-success' : (o.status === 'Cancelado' ? 'status-danger' : 'status-progress'))
+    };
+  });
+
+  const allItems = [...pendingItems, ...historyItems];
+
+  let filteredList = [];
+  if (currentClientTeleFilter === 'all') {
+    filteredList = allItems;
+  } else {
+    filteredList = allItems.filter(item => item.type === currentClientTeleFilter);
+  }
+
+  filteredList.sort((a, b) => b.id.localeCompare(a.id));
+
+  if (clientTeleViewMode === 'grid') {
+    renderClientTelesGrid(filteredList);
+  } else {
+    renderClientTelesTable(filteredList);
+  }
+};
+
+function renderClientTelesGrid(list) {
+  const container = document.getElementById('client-teles-content-container');
+  if (!container) return;
+
+  if (list.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 30px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
-        <p style="margin: 0; font-weight: 500;">Nenhuma tele pendente de despacho no momento.</p>
+      <div style="text-align: center; padding: 40px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
+        <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--color-text-muted); margin-bottom: 12px; display: inline-block;"></i>
+        <p style="font-weight: 600; color: var(--color-text);">Nenhuma tele encontrada</p>
+        <p style="font-size: 0.9rem;">Nenhuma tele atende aos critérios do filtro selecionado.</p>
       </div>
     `;
+    if (window.lucide) lucide.createIcons();
     return;
   }
 
-  container.innerHTML = '';
-  filteredPending.forEach(delivery => {
-    const card = document.createElement('div');
-    card.className = 'pending-card';
-    card.innerHTML = `
-      <div class="pending-card-header">
-        <strong style="font-family: var(--font-display);">${escapeHtml(delivery.id)}</strong>
-        <span class="badge badge-warning" style="background: rgba(255, 183, 0, 0.1); color: #ffb700;">Aguardando Despacho</span>
-      </div>
-      <div class="pending-card-body">
-        <p><strong>Destinatário:</strong> ${escapeHtml(delivery.destName)}</p>
-        <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i data-lucide="map-pin" style="width: 12px; height: 12px;"></i> ${escapeHtml(delivery.address)}</p>
-        <p style="margin-top: 6px;"><strong>Mercadoria:</strong> ${escapeHtml(delivery.cargo)}</p>
-        <p><strong>Valor:</strong> <span class="text-yellow" style="color: var(--primary) !important;">${escapeHtml(delivery.price)}</span> (${escapeHtml(delivery.payment)})</p>
+  let html = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px;">`;
+
+  list.forEach(item => {
+    const originBadge = getOriginBadgeHtml(item.payment, item.id);
+    const isCanceled = item.type === 'canceled';
+    const isCompleted = item.type === 'completed';
+
+    html += `
+      <div class="active-card" style="border: 1px solid ${isCanceled ? 'rgba(239, 68, 68, 0.2)' : (isCompleted ? 'rgba(34, 197, 94, 0.2)' : 'var(--border-color)')};">
+        <div class="active-card-header">
+          <strong style="font-family: var(--font-display);">${formatOrderIdForDisplay(item.id, item.payment, item.client)}</strong>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            ${originBadge}
+          </div>
+        </div>
+        <div class="active-card-body" style="padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+          <p style="margin: 0;"><strong>Destino:</strong> ${escapeHtml(item.destName)}</p>
+          <p class="text-muted text-xs" style="margin: 0; display: flex; align-items: center; gap: 4px; line-height: 1.4;">
+            <i data-lucide="map-pin" style="width: 12px; height: 12px; flex-shrink: 0;"></i> 
+            <span style="flex: 1;">${escapeHtml(item.address)}</span>
+            ${item.dest_lat && item.dest_lng ? `
+              <button onclick="window.openQuickMapModal('${item.id}', ${item.dest_lat}, ${item.dest_lng})" style="background: rgba(255, 185, 0, 0.15); border: 1px solid rgba(255, 185, 0, 0.3); color: var(--primary); border-radius: 4px; padding: 2px 5px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; outline: none; transition: all 0.2s;" title="Visualizar no Mapa">
+                <i data-lucide="map" style="width: 12px; height: 12px;"></i>
+              </button>
+            ` : ''}
+          </p>
+          <p style="margin: 0;"><strong>Mercadoria:</strong> ${escapeHtml(item.cargo)}</p>
+          <p style="margin: 0; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+            <strong>Distância:</strong> ${escapeHtml(item.dist.split('|')[0])} • 
+            <strong>Taxa:</strong> 
+            <span style="font-weight: 600; color: var(--primary);">${escapeHtml(item.price)}</span>
+          </p>
+          <p style="margin: 0;"><strong>Motoboy:</strong> <span class="badge badge-success" style="background: var(--accent-cyan-glow); color: var(--accent-cyan); border-color: rgba(0, 174, 239, 0.2);">${escapeHtml(item.rider)}</span></p>
+          <p style="margin: 0;"><strong>Status:</strong> <span class="status-indicator ${escapeHtml(item.statusClass)}">${escapeHtml(item.status)}</span></p>
+        </div>
       </div>
     `;
-    container.appendChild(card);
   });
+
+  html += `</div>`;
+  container.innerHTML = html;
   if (window.lucide) lucide.createIcons();
 }
 
-function renderClientActiveDeliveries() {
-  const container = document.getElementById('client-active-deliveries-container');
+function renderClientTelesTable(list) {
+  const container = document.getElementById('client-teles-content-container');
   if (!container) return;
 
-  const currentCreds = mockData.credentials[mockData.activeProfile];
-  const currentCommerce = currentCreds ? currentCreds.commerceName : 'Parceiro Garra';
-
-  const activeOrders = mockData.clientHistory.filter(order => 
-    order.status !== 'Entregue' && order.client === currentCommerce
-  );
-
-  const activeBadge = document.getElementById('client-active-count-badge');
-  if (activeBadge) activeBadge.innerText = activeOrders.length + ' em rota';
-
-  if (activeOrders.length === 0) {
+  if (list.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 30px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
-        <p style="margin: 0; font-weight: 500;">Nenhuma tele em andamento.</p>
+      <div style="text-align: center; padding: 40px; background-color: var(--bg-card); border: 1px dashed var(--border-color); border-radius: var(--border-radius-md); color: var(--color-text-muted);">
+        <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--color-text-muted); margin-bottom: 12px; display: inline-block;"></i>
+        <p style="font-weight: 600; color: var(--color-text);">Nenhuma tele encontrada</p>
+        <p style="font-size: 0.9rem;">Nenhuma tele atende aos critérios do filtro selecionado.</p>
       </div>
     `;
+    if (window.lucide) lucide.createIcons();
     return;
   }
 
-  container.innerHTML = '';
-  activeOrders.forEach(order => {
-    const card = document.createElement('div');
-    card.className = 'active-card';
-    card.innerHTML = `
-      <div class="active-card-header">
-        <strong style="font-family: var(--font-display);">${escapeHtml(order.id)}</strong>
-        <span class="badge badge-success" style="background: var(--accent-cyan-glow); color: var(--accent-cyan); border-color: rgba(0, 174, 239, 0.2);">${escapeHtml(order.rider || 'Sem entregador')}</span>
-      </div>
-      <div class="active-card-body">
-        <p><strong>Destino:</strong> ${escapeHtml(order.destName)}</p>
-        <p class="text-muted text-xs" style="margin-top: 4px; display: flex; align-items: center; gap: 4px;"><i data-lucide="map-pin" style="width: 12px; height: 12px;"></i> ${escapeHtml(order.address)}</p>
-        <p style="margin-top: 6px;"><strong>Distância:</strong> ${escapeHtml((order.dist || '').split('|')[0])} • <strong>Taxa:</strong> ${escapeHtml(order.price)}</p>
-        <p style="margin-top: 4px;"><strong>Status:</strong> <span class="status-indicator ${escapeHtml(order.statusClass)}">${escapeHtml(order.status)}</span></p>
-      </div>
+  let html = `
+    <div class="table-responsive">
+      <table class="compact-table">
+        <thead>
+          <tr>
+            <th>Origem</th>
+            <th>Código</th>
+            <th>Destinatário</th>
+            <th>Endereço</th>
+            <th>Motoboy</th>
+            <th>Data/Hora</th>
+            <th>Taxa (Valor)</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  list.forEach(item => {
+    const originBadge = getOriginBadgeHtml(item.payment, item.id);
+    const dateFormatted = formatOrderDate(item.date, item.created_at);
+
+    html += `
+      <tr>
+        <td>${originBadge}</td>
+        <td><strong style="font-family: var(--font-display);">${formatOrderIdForDisplay(item.id, item.payment, item.client)}</strong></td>
+        <td>${escapeHtml(item.destName)}</td>
+        <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(item.address)}">${escapeHtml(item.address)}</td>
+        <td><span class="badge badge-soft">${escapeHtml(item.rider)}</span></td>
+        <td>${dateFormatted}</td>
+        <td><strong style="color: var(--primary);">${escapeHtml(item.price)}</strong></td>
+        <td><span class="status-indicator ${escapeHtml(item.statusClass)}">${escapeHtml(item.status)}</span></td>
+      </tr>
     `;
-    container.appendChild(card);
   });
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.innerHTML = html;
   if (window.lucide) lucide.createIcons();
 }
 
@@ -5431,7 +5579,7 @@ function subscribeDashboardRealtime() {
         console.log('Realtime client history update:', payload);
         const commerceName = creds ? creds.commerceName : null;
         await fetchClientHistory();
-        renderClientActiveDeliveries();
+        renderClientTelesUnified();
         renderClientHistoryTable();
         updateClientDashboardOverview();
         if (document.getElementById('tab-client-overview')?.classList.contains('active')) {
@@ -5453,7 +5601,7 @@ function subscribeDashboardRealtime() {
         console.log('Realtime client pending update:', payload);
         const commerceName = creds ? creds.commerceName : null;
         await fetchPendingDeliveries();
-        renderClientPendingDeliveries();
+        renderClientTelesUnified();
         if (clientFleetMap) {
           renderClientMapMarkers(clientFleetCenterCoords);
         }

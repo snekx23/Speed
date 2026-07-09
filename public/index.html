@@ -1334,36 +1334,49 @@
 
           <!-- 2. Client Teles (Acompanhamento) -->
           <div id="tab-client-teles" class="dashboard-tab-content">
-            <!-- Pending Teles -->
-            <div>
-              <div class="section-header" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                  <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Teles Pendentes (A Despachar)</h3>
-                  <p class="text-muted">Teles aguardando atribuição pela central.</p>
-                </div>
-                <span class="badge badge-warning" id="client-pending-count-badge">0 pendentes</span>
+            <!-- Header with View Toggle -->
+            <div class="section-header flex-row" style="margin-bottom: 16px;">
+              <div>
+                <h3 class="gradient-text font-display" style="font-size: 1.6rem; font-weight: 700;">Acompanhar Teles</h3>
+                <p class="text-muted">Monitore todas as suas corridas ativas, pendentes, concluídas ou canceladas em tempo real.</p>
               </div>
-              <div class="pending-grid" id="client-pending-deliveries-container">
-                <!-- Rendered dynamically via JS -->
+              <div class="view-toggle-container" style="display: flex; align-items: center; gap: 12px;">
+                <div class="view-toggle" style="display: flex; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: 6px; padding: 2px;">
+                  <button id="client-view-toggle-grid" class="btn btn-sm" onclick="setClientTeleViewMode('grid')" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    <i data-lucide="layout-grid" style="width: 14px; height: 14px;"></i> Cards
+                  </button>
+                  <button id="client-view-toggle-list" class="btn btn-sm active" onclick="setClientTeleViewMode('list')" style="padding: 4px 10px; border-radius: 4px; border: none; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    <i data-lucide="list" style="width: 14px; height: 14px;"></i> Lista Compacta
+                  </button>
+                </div>
               </div>
             </div>
 
-            <!-- Active Deliveries -->
-            <div style="margin-top: 36px;">
-              <div class="section-header" style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                  <h3 class="gradient-text font-display" style="font-size: 1.4rem; font-weight: 700;">Teles em Andamento</h3>
-                  <p class="text-muted">Corridas em trânsito com os motoboys.</p>
-                </div>
-                <span class="badge badge-success" id="client-active-count-badge">0 em rota</span>
-              </div>
-              <div class="active-deliveries-grid" id="client-active-deliveries-container">
-                <!-- Rendered dynamically via JS -->
-              </div>
+            <!-- Global Status Filters -->
+            <div class="teles-filters" style="display: flex; gap: 8px; margin-bottom: 24px; overflow-x: auto; padding-bottom: 8px;">
+              <button id="client-filter-all" class="filter-pill active" onclick="setClientTeleFilter('all')">
+                Todas <span class="badge badge-sm bg-primary-glow text-primary" id="client-count-all">0</span>
+              </button>
+              <button id="client-filter-pending" class="filter-pill" onclick="setClientTeleFilter('pending')">
+                Aguardando Despacho <span class="badge badge-sm bg-warning-glow text-warning" id="client-count-pending">0</span>
+              </button>
+              <button id="client-filter-active" class="filter-pill" onclick="setClientTeleFilter('active')">
+                Em Execução / Rota <span class="badge badge-sm bg-info-glow text-info" id="client-count-active">0</span>
+              </button>
+              <button id="client-filter-completed" class="filter-pill" onclick="setClientTeleFilter('completed')">
+                Concluídas <span class="badge badge-sm bg-success-glow text-success" id="client-count-completed">0</span>
+              </button>
+              <button id="client-filter-canceled" class="filter-pill" onclick="setClientTeleFilter('canceled')">
+                Canceladas <span class="badge badge-sm bg-danger-glow text-danger" id="client-count-canceled">0</span>
+              </button>
+            </div>
+
+            <!-- Unified Content Container (Cards or Table) -->
+            <div id="client-teles-content-container">
+              <!-- Rendered dynamically via JS -->
             </div>
           </div>
 
-          <!-- 2. Order Tracking -->
           <div id="tab-order-tracking" class="dashboard-tab-content">
             <div class="tracking-layout">
               <!-- Left side: Status Timeline & Courier Info -->
