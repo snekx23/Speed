@@ -8312,14 +8312,17 @@ window.closeQuickMapModal = function(event) {
 window.simularIntegracao99Food = async function() {
   console.log("=== INICIANDO SIMULAÇÃO DE INTEGRAÇÃO 99FOOD ===");
 
-  // 1. Simulação do Payload Nativo da API do 99Food (Calibrado com a base na Rua Ana Rosa 221)
-  const orderNum = Math.floor(100000 + Math.random() * 900000);
+  // 1. Simulação do Payload Nativo da API do 99Food (Com ID e endereço válidos)
+  const orderNum = Math.floor(100000 + Math.random() * 900000); // 6 dígitos reais
+  const shortId = `TEST-${orderNum.toString().slice(-4)}`; // e.g. TEST-8000
+  const simulatedId = `99Food #${shortId} (${orderNum})`;
+
   const payload99 = {
-    order_id: '#99F-' + orderNum,
+    order_id: simulatedId,
     customer_name: 'Guilherme Silva (Teste 99Food)',
-    delivery_address_string: 'Rua Ana Rosa, 221 - Sapucaia do Sul - RS',
-    delivery_latitude: -29.842173,
-    delivery_longitude: -51.126764,
+    delivery_address_string: 'Av. Sapucaia, 1200 - Centro, Sapucaia do Sul - RS',
+    delivery_latitude: -29.8378,
+    delivery_longitude: -51.1444,
     items: ['X-Salada Especial', 'Coca-Cola 350ml']
   };
 
