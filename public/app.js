@@ -492,38 +492,129 @@ function switchLoginTab(profile) {
   }
 }
 
-// Handle Login submit
-function handleLogin(event) {
+async function handleLogin(event) {
   if (event) event.preventDefault();
   
   const emailInput = document.getElementById('username').value.trim();
   const passwordInput = document.getElementById('password').value.trim();
 
-  // Find matching profile in mockData.credentials
-  let matchedProfile = null;
-  for (const [profileKey, creds] of Object.entries(mockData.credentials)) {
-    if (creds.email.toLowerCase() === emailInput.toLowerCase() && creds.pass === passwordInput) {
-      matchedProfile = profileKey;
-      break;
-    }
-  }
-
-  if (!matchedProfile) {
-    alert('E-mail ou senha incorretos.');
-    return;
-  }
-
-  // Set the active profile to the matched one
-  mockData.activeProfile = matchedProfile;
-
-  // Show loader briefly to simulate validation
+  // Show loader during auth
   const loader = document.getElementById('loader');
-  loader.classList.remove('hidden');
+  if (loader) loader.classList.remove('hidden');
 
-  setTimeout(() => {
-    loader.classList.add('hidden');
+  if (supabaseClient) {
+    try {
+      // 1. Authenticate with Supabase Auth
+      const { data: authData, error: authError } = await supabaseClient.auth.signInWithPassword({
+        email: emailInput,
+        password: passwordInput
+      });
+
+      if (authError) {
+        if (loader) loader.classList.add('hidden');
+        alert('E-mail ou senha incorretos.');
+        return;
+      }
+
+      const user = authData.user;
+
+      // 2. Fetch profile role from public.perfis
+      const { data: perfil, error: perfilError } = await supabaseClient
+        .from('perfis')
+        .select('papel')
+        .eq('id', user.id)
+        .single();
+
+      if (perfilError || !perfil) {
+        if (loader) loader.classList.add('hidden');
+        await supabaseClient.auth.signOut();
+        alert('Perfil de acesso não encontrado para este usuário.');
+        return;
+      }
+
+      // Map 'admin' -> 'owner', 'parceiro' -> 'client'
+      const matchedRole = (perfil.papel === 'admin') ? 'owner' : 'client';
+
+      // 3. Capture active tab selected by user
+      const activeTabEl = document.querySelector('.login-tabs .tab-btn.active');
+      const activeTab = activeTabEl ? activeTabEl.getAttribute('data-tab') : 'owner';
+
+      // 4. Role Shield Verification
+      if (activeTab === 'owner' && matchedRole !== 'owner') {
+        if (loader) loader.classList.add('hidden');
+        await supabaseClient.auth.signOut();
+        alert('Este usuário não possui permissões administrativas.');
+        return;
+      }
+
+      if (activeTab === 'client' && matchedRole !== 'client') {
+        if (loader) loader.classList.add('hidden');
+        await supabaseClient.auth.signOut();
+        alert('Este usuário não é um parceiro comercial cadastrado.');
+        return;
+      }
+
+      // Map active profile to credentials map key for local app logic
+      let matchedProfile = 'owner';
+      for (const [profileKey, creds] of Object.entries(mockData.credentials)) {
+        if (creds.email.toLowerCase() === emailInput.toLowerCase()) {
+          matchedProfile = profileKey;
+          break;
+        }
+      }
+
+      mockData.activeProfile = matchedProfile;
+
+    } catch (err) {
+      console.error("Auth error:", err);
+      if (loader) loader.classList.add('hidden');
+      alert('Erro inesperado de rede/autenticação.');
+      return;
+    }
+  } else {
+    // Local fallback for offline/development unit testing
+    let matchedProfile = null;
+    for (const [profileKey, creds] of Object.entries(mockData.credentials)) {
+      if (creds.email.toLowerCase() === emailInput.toLowerCase() && creds.pass === passwordInput) {
+        matchedProfile = profileKey;
+        break;
+      }
+    }
+
+    if (!matchedProfile) {
+      if (loader) loader.classList.add('hidden');
+      alert('E-mail ou senha incorretos.');
+      return;
+    }
+
+    const activeTabEl = document.querySelector('.login-tabs .tab-btn.active');
+    const activeTab = activeTabEl ? activeTabEl.getAttribute('data-tab') : 'owner';
+    const matchedRole = (matchedProfile === 'owner') ? 'owner' : 'client';
+
+    if (activeTab === 'owner' && matchedRole !== 'owner') {
+      if (loader) loader.classList.add('hidden');
+      alert('Este usuário não possui permissões administrativas.');
+      return;
+    }
+
+    if (activeTab === 'client' && matchedRole !== 'client') {
+      if (loader) loader.classList.add('hidden');
+      alert('Este usuário não é um parceiro comercial cadastrado.');
+      return;
+    }
+
+    mockData.activeProfile = matchedProfile;
+  }
+
+  // Finalize UI transition
+  if (loader) {
+    setTimeout(() => {
+      loader.classList.add('hidden');
+      loginSuccess();
+    }, 800);
+  } else {
     loginSuccess();
-  }, 800);
+  }
 }
 
 
