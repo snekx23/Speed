@@ -43,27 +43,37 @@ async function processarLoja(sb: any, lojaId: string, merchantId: string | null)
   const eventos: any[] = await r.json()
   if (!Array.isArray(eventos) || eventos.length === 0) return { eventos: 0 }
 
+  const successfulEvents: any[] = []
+
   for (const ev of eventos) {
     const code = (ev.code ?? ev.fullCode ?? '').toString().toUpperCase()
     const orderId = ev.orderId ?? ev.orderID
-    if (code === 'PLC' || code === 'PLACED') {
-      await criarTeleDoPedido(sb, lojaId, orderId) // pedido novo -> cria a tele
-    } else if (orderId) {
-      // reflete mudanças de status do iFood na nossa tele
-      if (code === 'CON' || code === 'CONCLUDED') await atualizarStatusTele('ifood', orderId, 'entregue')
-      else if (code === 'CAN' || code === 'CANCELLED') await atualizarStatusTele('ifood', orderId, 'cancelado')
-      else if (code === 'DSP' || code === 'DISPATCHED') await atualizarStatusTele('ifood', orderId, 'em_rota')
+    try {
+      if (code === 'PLC' || code === 'PLACED') {
+        await criarTeleDoPedido(sb, lojaId, orderId) // pedido novo -> cria a tele
+      } else if (orderId) {
+        // reflete mudanças de status do iFood na nossa tele
+        if (code === 'CON' || code === 'CONCLUDED') await atualizarStatusTele('ifood', orderId, 'entregue')
+        else if (code === 'CAN' || code === 'CANCELLED') await atualizarStatusTele('ifood', orderId, 'cancelado')
+        else if (code === 'DSP' || code === 'DISPATCHED') await atualizarStatusTele('ifood', orderId, 'em_rota')
+      }
+      successfulEvents.push(ev)
+    } catch (err) {
+      console.error(`Error processing event ${ev.id}:`, err)
+      // Do not add to successfulEvents so iFood can redeliver it on next poll
     }
   }
 
-  // Confirma TODOS os eventos recebidos (obrigatório).
-  const ack = eventos.map((e) => ({ id: e.id }))
-  await ifoodFetch(sb, lojaId, `${EVENTS}/events/acknowledgment`, {
-    method: 'POST',
-    body: JSON.stringify(ack),
-  })
+  if (successfulEvents.length > 0) {
+    // Confirma apenas os eventos processados com sucesso.
+    const ack = successfulEvents.map((e) => ({ id: e.id }))
+    await ifoodFetch(sb, lojaId, `${EVENTS}/events/acknowledgment`, {
+      method: 'POST',
+      body: JSON.stringify(ack),
+    })
+  }
 
-  return { eventos: eventos.length }
+  return { eventos: successfulEvents.length }
 }
 
 async function criarTeleDoPedido(sb: any, lojaId: string, orderId: string) {
