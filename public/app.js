@@ -385,9 +385,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   lucide.createIcons();
 
   // Eye toggle listener for password visibility
-  const toggleBtn = document.getElementById('toggle-password');
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', function() {
+  const passwordToggleBtn = document.getElementById('toggle-password');
+  if (passwordToggleBtn) {
+    passwordToggleBtn.addEventListener('click', function() {
       const passwordInput = document.getElementById('password');
       const eyeIcon = this.querySelector('i');
       if (passwordInput && eyeIcon) {
