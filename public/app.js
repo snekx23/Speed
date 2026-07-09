@@ -114,9 +114,14 @@ let supportChatChannel = null;
 let activeAdminChatChannels = [];
 let activeAdminRiderChatChannels = [];
 let ownerFleetCenterCoords = [-23.55052, -46.633308];
+let clientFleetCenterCoords = [-29.83, -51.14];
 let dashboardRealtimeChannel = null;
 let ownerFleetMarkers = {};
 let ownerCentralMarker = null;
+let clientFleetMap = null;
+let clientFleetInfoWindow = null;
+let clientFleetMarkers = {};
+let clientCentralMarker = null;
 let clientRatings = [];
 
 // Async functions to sync with Supabase
@@ -637,6 +642,15 @@ function handleLogout() {
     ownerFleetMarkers = {};
   }
 
+  // Reset client fleet map
+  if (clientFleetMap) {
+    const container = document.getElementById('client-fleet-map');
+    if (container) container.innerHTML = '';
+    clientFleetMap = null;
+    clientCentralMarker = null;
+    clientFleetMarkers = {};
+  }
+
   setTimeout(() => {
     loader.classList.add('hidden');
     
@@ -748,6 +762,9 @@ async function switchDashboardTab(targetTab) {
     await fetchClientHistory();
     updateClientDashboardOverview();
     initClientOverviewChart();
+  } else if (targetTab === 'client-fleet-map') {
+    await fetchFleet();
+    initClientFleetMap();
   } else if (targetTab === 'client-history') {
     await fetchClientHistory();
     renderClientHistoryTable();
@@ -2238,6 +2255,58 @@ function initOwnerFleetMap() {
   });
 }
 
+function initClientFleetMap() {
+  const mapContainer = document.getElementById('client-fleet-map');
+  if (!mapContainer) return;
+
+  if (clientFleetMap) {
+    if (window.google && google.maps) {
+      google.maps.event.trigger(clientFleetMap, 'resize');
+    }
+    return;
+  }
+
+  loadGoogleMapsAPI(() => {
+    const darkMapStyle = [
+      { elementType: "geometry", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.stroke", stylers: [{ color: "#1e1e24" }] },
+      { elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "administrative", elementType: "geometry", stylers: [{ color: "#33333d" }] },
+      { featureType: "poi", stylers: [{ visibility: "off" }] },
+      { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d2d38" }] },
+      { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a22" }] },
+      { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#8e8e9f" }] },
+      { featureType: "transit", stylers: [{ visibility: "off" }] },
+      { featureType: "water", elementType: "geometry", stylers: [{ color: "#0d0d11" }] }
+    ];
+
+    const latLng = new google.maps.LatLng(clientFleetCenterCoords[0], clientFleetCenterCoords[1]);
+    clientFleetMap = new google.maps.Map(mapContainer, {
+      center: latLng,
+      zoom: 14,
+      styles: darkMapStyle,
+      disableDefaultUI: true,
+      zoomControl: true
+    });
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          clientFleetCenterCoords = [position.coords.latitude, position.coords.longitude];
+          clientFleetMap.setCenter(new google.maps.LatLng(clientFleetCenterCoords[0], clientFleetCenterCoords[1]));
+          renderClientMapMarkers(clientFleetCenterCoords);
+        },
+        (error) => {
+          console.warn("Geolocation failed. Using fallback.", error);
+          renderClientMapMarkers(clientFleetCenterCoords);
+        }
+      );
+    } else {
+      renderClientMapMarkers(clientFleetCenterCoords);
+    }
+  });
+}
+
 function renderMapMarkers(centerCoords) {
   if (!ownerFleetMap) return;
 
@@ -2507,6 +2576,170 @@ window.removeTeleFromRiderFromPopup = async function(deliveryId, riderId) {
   if (!rider) return;
   await removeTeleFromRider(deliveryId, rider.id);
   window.openRiderMapPopup(riderId);
+};
+
+function renderClientMapMarkers(centerCoords) {
+  if (!clientFleetMap) return;
+
+  const centerLatLng = new google.maps.LatLng(centerCoords[0], centerCoords[1]);
+
+  if (!clientCentralMarker) {
+    const el = document.createElement('div');
+    el.className = 'custom-map-marker central-marker';
+    el.style.backgroundColor = '#ffffff';
+    el.style.boxShadow = '0 0 15px #ffffff';
+    el.style.borderColor = 'var(--primary)';
+    el.innerHTML = `
+      <div class="marker-pulse" style="border-color: var(--primary); animation-duration: 2.5s;"></div>
+      <i class="marker-icon-dot" style="background-color: var(--primary); width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
+    `;
+    
+    clientCentralMarker = new window.CustomHTMLMapMarker(centerLatLng, clientFleetMap, el.outerHTML, () => {
+      window.openClientBaseMapPopup();
+    });
+  } else {
+    clientCentralMarker.setLatLng(centerLatLng);
+  }
+
+  const ridersLocations = [
+    { id: 'MB-101', name: 'Gui', offset: [0.003, -0.004], status: 'Disponível', statusColor: '#22c55e' },
+    { id: 'MB-102', name: 'Garcia', offset: [-0.002, 0.006], status: 'Em rota', statusColor: '#ffb700' },
+    { id: 'MB-103', name: 'Gomes', offset: [0.005, 0.002], status: 'Em Coleta', statusColor: '#ffb700' },
+    { id: 'MB-104', name: 'Biel', offset: [-0.006, -0.003], status: 'Em Descanso', statusColor: '#8e8e9f' },
+    { id: 'MB-105', name: 'Melo', offset: [0.002, 0.007], status: 'Disponível', statusColor: '#22c55e' }
+  ];
+
+  ridersLocations.forEach(rider => {
+    const mockRider = mockData.fleet.find(r => r.name === rider.name);
+    const currentStatus = mockRider ? mockRider.status : rider.status;
+    const currentStatusColor = mockRider 
+      ? (mockRider.status === 'Em Descanso' ? '#8e8e9f' : (mockRider.statusClass === 'status-progress' ? '#ffb700' : '#22c55e')) 
+      : rider.statusColor;
+
+    const hasRealGPS = mockRider && 
+                       mockRider.lat !== null && 
+                       mockRider.lat !== undefined && 
+                       !isNaN(parseFloat(mockRider.lat)) && 
+                       mockRider.lng !== null && 
+                       mockRider.lng !== undefined && 
+                       !isNaN(parseFloat(mockRider.lng));
+
+    let riderCoords;
+    if (hasRealGPS) {
+      riderCoords = [parseFloat(mockRider.lat), parseFloat(mockRider.lng)];
+    } else {
+      riderCoords = [centerCoords[0] + rider.offset[0], centerCoords[1] + rider.offset[1]];
+    }
+
+    const isPulsing = currentStatus !== 'Em Descanso';
+    const markerHtml = `
+      <div class="custom-map-marker" style="background-color: ${currentStatusColor}; box-shadow: 0 0 10px ${currentStatusColor}; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer;">
+        ${isPulsing ? `<div class="marker-pulse" style="border-color: ${currentStatusColor}; position: absolute; top: -5px; left: -5px; width: 24px; height: 24px; border: 2px solid ${currentStatusColor}; border-radius: 50%; animation: pulse-dot-anim 2.5s infinite;"></div>` : ''}
+        <i class="marker-icon-dot" style="background-color: #fff; width: 6px; height: 6px; border-radius: 50%; display: block;"></i>
+      </div>
+    `;
+
+    const riderLatLng = new google.maps.LatLng(riderCoords[0], riderCoords[1]);
+    let markerEntry = clientFleetMarkers[rider.name];
+    if (markerEntry) {
+      markerEntry.setLatLng(riderLatLng);
+    } else {
+      const marker = new window.CustomHTMLMapMarker(riderLatLng, clientFleetMap, markerHtml, () => {
+        window.openClientRiderMapPopup(rider.id);
+      });
+      clientFleetMarkers[rider.name] = marker;
+    }
+  });
+}
+
+window.openClientRiderMapPopup = function(riderId) {
+  const rider = mockData.fleet.find(r => r.id === riderId);
+  if (!rider) return;
+
+  const currentStatus = rider.status;
+  const currentStatusColor = rider.status === 'Em Descanso' ? '#8e8e9f' : (rider.statusClass === 'status-progress' ? '#ffb700' : '#22c55e');
+
+  const battery = rider.battery_level !== null && rider.battery_level !== undefined ? `${rider.battery_level}%` : '—';
+
+  const htmlContent = `
+    <div style="padding: 16px; min-width: 240px; font-family: sans-serif; color: #fff; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; margin-bottom: 12px; padding-right: 28px;">
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">${rider.name}</h4>
+        <span class="status-indicator" style="background-color: ${currentStatusColor}; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; color: #fff; font-weight: 600; flex-shrink: 0; margin-left: 8px;">
+          ${currentStatus}
+        </span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;">
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: #8e8e9f;">Bateria do Celular:</span>
+          <strong style="color: #10b981;">${battery}</strong>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const centerCoords = clientFleetCenterCoords;
+  const offsets = [[0.004, -0.006], [0.008, 0.012], [-0.005, 0.009], [-0.012, -0.004], [0.003, -0.015], [-0.009, 0.005]];
+  const index = mockData.fleet.findIndex(r => r.id === rider.id);
+  
+  const hasRealGPS = rider.lat !== null && rider.lat !== undefined && !isNaN(parseFloat(rider.lat)) && rider.lng !== null && rider.lng !== undefined && !isNaN(parseFloat(rider.lng));
+
+  let coords;
+  if (hasRealGPS) {
+    coords = [parseFloat(rider.lat), parseFloat(rider.lng)];
+  } else {
+    const offset = offsets[index % offsets.length] || [0, 0];
+    coords = [centerCoords[0] + offset[0], centerCoords[1] + offset[1]];
+  }
+
+  if (clientFleetInfoWindow) {
+    clientFleetInfoWindow.close();
+  }
+  
+  clientFleetInfoWindow = new google.maps.InfoWindow({
+    content: htmlContent,
+    position: new google.maps.LatLng(coords[0], coords[1])
+  });
+  
+  clientFleetInfoWindow.open(clientFleetMap);
+};
+
+window.openClientBaseMapPopup = function() {
+  const currentCreds = mockData.credentials[mockData.activeProfile];
+  const currentCommerce = (currentCreds && currentCreds.commerceName) ? currentCreds.commerceName : 'Parceiro Garra';
+  
+  const commerceAddresses = {
+    'Parceiro Garra': 'Av. Sapucaia, 1250 - Centro, Sapucaia do Sul - RS',
+    'Bora Açaí': 'Rua Flores da Cunha, 450 - Centro, Sapucaia do Sul - RS'
+  };
+  const address = commerceAddresses[currentCommerce] || 'Av. Sapucaia, 1250 - Centro, Sapucaia do Sul - RS';
+
+  const htmlContent = `
+    <div style="padding: 16px; min-width: 240px; font-family: sans-serif; color: #fff; box-sizing: border-box;">
+      <h4 style="margin: 0 0 8px 0; font-size: 0.95rem; font-weight: 700; color: #fff; padding-right: 28px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; margin-bottom: 12px;">${currentCommerce}</h4>
+      <p style="margin: 0 0 10px 0; font-size: 0.8rem; color: #8e8e9f; display: flex; align-items: start; gap: 4px;">
+        <i data-lucide="map-pin" style="width: 14px; height: 14px; flex-shrink: 0; color: #ffb700; margin-top: 1px;"></i>
+        <span>${address}</span>
+      </p>
+    </div>
+  `;
+
+  const centerCoords = clientFleetCenterCoords;
+
+  if (clientFleetInfoWindow) {
+    clientFleetInfoWindow.close();
+  }
+  
+  clientFleetInfoWindow = new google.maps.InfoWindow({
+    content: htmlContent,
+    position: new google.maps.LatLng(centerCoords[0], centerCoords[1])
+  });
+  
+  clientFleetInfoWindow.open(clientFleetMap);
+
+  setTimeout(() => {
+    if (window.lucide) lucide.createIcons();
+  }, 100);
 };
 
 // Calculate Rider's 90% share of delivery cost
@@ -5182,6 +5415,17 @@ function subscribeDashboardRealtime() {
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
+        table: 'fleet'
+      }, async (payload) => {
+        console.log('Realtime client fleet update:', payload);
+        await fetchFleet();
+        if (clientFleetMap) {
+          renderClientMapMarkers(clientFleetCenterCoords);
+        }
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
         table: 'client_history'
       }, async (payload) => {
         console.log('Realtime client history update:', payload);
@@ -5192,6 +5436,9 @@ function subscribeDashboardRealtime() {
         updateClientDashboardOverview();
         if (document.getElementById('tab-client-overview')?.classList.contains('active')) {
           initClientOverviewChart();
+        }
+        if (clientFleetMap) {
+          renderClientMapMarkers(clientFleetCenterCoords);
         }
 
         if (commerceName && payload.new.client === commerceName && (payload.eventType === 'INSERT' || (payload.eventType === 'UPDATE' && (payload.new.status === 'Entregue' || payload.new.status === 'Concluído')))) {
@@ -5207,6 +5454,9 @@ function subscribeDashboardRealtime() {
         const commerceName = creds ? creds.commerceName : null;
         await fetchPendingDeliveries();
         renderClientPendingDeliveries();
+        if (clientFleetMap) {
+          renderClientMapMarkers(clientFleetCenterCoords);
+        }
 
         if (commerceName && payload.new.client === commerceName && payload.eventType === 'INSERT') {
           addBellNotification(`Sua solicitação de motoboy <strong>#${escapeHtml(payload.new.id)}</strong> foi recebida.`, 'store');
