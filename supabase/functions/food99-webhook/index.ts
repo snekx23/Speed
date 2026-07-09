@@ -12,7 +12,7 @@
 
 import { createHash } from 'node:crypto'
 import { normalizar99food, tipo99food } from '../_shared/normalizar.ts'
-import { inserirTele, atualizarStatusTele, logWebhook } from '../_shared/inserir.ts'
+import { inserirTele, atualizarStatusTele, logWebhook, isDuplicateTele } from '../_shared/inserir.ts'
 import { acaoPedido99 } from '../_shared/food99api.ts'
 
 const corsHeaders = {
@@ -77,6 +77,16 @@ Deno.serve(async (req) => {
     if (tipo === 'novo' || tipo === 'outro') {
       const tele = normalizar99food(body)
       tele.external_id = orderId // garante precisão
+
+      const shortId = tele.codigo ? tele.codigo.replace('#', '') : orderId.slice(-4)
+      const dbId = `99Food #${shortId} (${orderId})`
+      
+      const duplicate = await isDuplicateTele(dbId)
+      if (duplicate) {
+        console.log(`Duplicate 99Food webhook received for order ${orderId} (${dbId}). Skipping insertion.`)
+        return ok()
+      }
+
       await inserirTele(tele)
 
       // Fluxo de confirmação automática obrigatório para 99Food

@@ -119,3 +119,12 @@ export async function atualizarStatusTele(origem: string, externalId: string, st
       .eq('id', externalId)
   }
 }
+
+export async function isDuplicateTele(dbId: string): Promise<boolean> {
+  const { data, error } = await admin()
+    .from('pending_deliveries')
+    .select('id')
+    .eq('id', dbId)
+    .maybeSingle()
+  return !error && data !== null
+}

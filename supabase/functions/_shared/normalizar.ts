@@ -63,9 +63,17 @@ export function normalizar99food(env: any): TeleNormalizada {
   const phoneCode = phone.length >= 4 ? phone.slice(-4) : '1234';
   const confirmation_code = code || phoneCode;
 
-  const endereco =
-    addr?.poi_address ||
-    [addr?.street_name, addr?.street_number, addr?.district, addr?.city].filter(Boolean).join(', ')
+  let endereco = addr?.poi_address || ''
+  const fallbackAddr = [
+    addr?.street_name || addr?.street,
+    addr?.street_number || addr?.number || addr?.house_number,
+    addr?.district || addr?.neighborhood || addr?.suburb,
+    addr?.city
+  ].filter(Boolean).join(', ')
+
+  if (!endereco || endereco.trim().toLowerCase() === 'cliente 99food' || endereco.trim() === '') {
+    endereco = fallbackAddr || 'Cliente 99Food'
+  }
 
   const freteCentavos = info?.price?.send_price
   const totalCentavos = info?.price?.order_price ?? info?.price?.real_pay_price

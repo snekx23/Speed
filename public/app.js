@@ -260,7 +260,7 @@ function parseLocalDate(dateStr) {
   return new Date(year, month - 1, day);
 }
 
-window.searchActiveRidersForExtract = async function() {
+async function searchActiveRidersForExtract() {
   const startDateStr = document.getElementById('extract-start-date').value;
   const endDateStr = document.getElementById('extract-end-date').value;
 
@@ -334,9 +334,9 @@ window.searchActiveRidersForExtract = async function() {
     console.error("Error searching active riders:", err);
     alert("Erro ao buscar profissionais no Supabase.");
   }
-};
+}
 
-window.generateRiderExtract = async function() {
+async function generateRiderExtract() {
   const selectedRadio = document.querySelector('input[name="extract-rider-selection"]:checked');
   if (!selectedRadio) {
     alert("Por favor, selecione um profissional da lista.");
@@ -422,7 +422,11 @@ window.generateRiderExtract = async function() {
     console.error("Error generating rider extract:", err);
     alert("Erro ao buscar os registros de extrato do profissional.");
   }
-};
+}
+
+// Bind to window object for global availability
+window.searchActiveRidersForExtract = searchActiveRidersForExtract;
+window.generateRiderExtract = generateRiderExtract;
 
 async function fetchPendingDeliveries() {
   if (!supabaseClient) return;
