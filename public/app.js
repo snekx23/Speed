@@ -488,24 +488,24 @@ function switchLoginTab(profile) {
   const passwordGroup = document.getElementById('password-group');
 
   if (profile.startsWith('order')) {
-    usernameLabel.innerText = 'E-mail do Comércio';
-    usernameInput.type = 'email';
+    usernameLabel.innerText = 'Login do Parceiro';
+    usernameInput.type = 'text';
     usernameInput.value = '';
-    usernameInput.placeholder = 'estabelecimento@email.com';
+    usernameInput.placeholder = 'boraacai';
     passwordInput.value = '';
     passwordGroup.style.display = 'flex';
   } else if (profile.startsWith('client')) {
-    usernameLabel.innerText = 'E-mail do Cliente (Lancheria)';
-    usernameInput.type = 'email';
+    usernameLabel.innerText = 'Login do Parceiro';
+    usernameInput.type = 'text';
     usernameInput.value = '';
-    usernameInput.placeholder = 'estabelecimento@email.com';
+    usernameInput.placeholder = 'boraacai';
     passwordInput.value = '';
     passwordGroup.style.display = 'flex';
   } else {
-    usernameLabel.innerText = 'E-mail do Administrador';
-    usernameInput.type = 'email';
+    usernameLabel.innerText = 'Login do Administrador';
+    usernameInput.type = 'text';
     usernameInput.value = '';
-    usernameInput.placeholder = 'admin@garradelivery.com.br';
+    usernameInput.placeholder = 'adm';
     passwordInput.value = '';
     passwordGroup.style.display = 'flex';
   }
