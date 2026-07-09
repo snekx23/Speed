@@ -190,28 +190,65 @@ function getFixedPriceFormatted(address) {
 
 async function fetchClientHistory() {
   await fetchCommerces();
+  const currentCreds = mockData.credentials[mockData.activeProfile];
+  const currentCommerce = currentCreds ? currentCreds.commerceName : 'Parceiro Garra';
+
   if (!supabaseClient) return;
+
   try {
-    const { data, error } = await supabaseClient
-      .from('client_history')
-      .select('*')
-      .order('id', { ascending: false });
-    if (error) throw error;
-    mockData.clientHistory = data.map(item => ({
+    const [pendingRes, historyRes] = await Promise.all([
+      supabaseClient
+        .from('pending_deliveries')
+        .select('*')
+        .eq('client', currentCommerce),
+      supabaseClient
+        .from('client_history')
+        .select('*')
+        .eq('client', currentCommerce)
+    ]);
+
+    if (pendingRes.error) throw pendingRes.error;
+    if (historyRes.error) throw historyRes.error;
+
+    // 1. Process pending items
+    const pendingItems = pendingRes.data.map(item => ({
       id: escapeHtml(String(item.id)),
       client: escapeHtml(item.client || 'Parceiro Garra'),
-      destName: escapeHtml(item.dest_name),
+      destName: escapeHtml(item.dest_name || 'Cliente'),
       address: escapeHtml(item.address),
-      rider: escapeHtml(item.rider),
-      dist: escapeHtml(item.dist),
-      price: getFixedPriceFormatted(item.address),
+      rider: escapeHtml(item.rider || 'Aguardando Despacho'),
+      dist: escapeHtml(item.dist || '—'),
+      price: formatMoneyBR(getFixedPriceByAddress(item.address)),
+      date: 'Hoje, Agora',
+      status: 'Aguardando Despacho',
+      statusClass: 'status-warning',
+      payment_status: 'Pendente',
+      created_at: item.created_at,
+      total_order_amount: item.total_order_amount || null
+    }));
+
+    // 2. Process history items
+    const historyItems = historyRes.data.map(item => ({
+      id: escapeHtml(String(item.id)),
+      client: escapeHtml(item.client || 'Parceiro Garra'),
+      destName: escapeHtml(item.dest_name || 'Cliente'),
+      address: escapeHtml(item.address),
+      rider: escapeHtml(item.rider || 'Sem entregador'),
+      dist: escapeHtml(item.dist ? item.dist.split('|')[0] : '—'),
+      price: formatMoneyBR(getFixedPriceByAddress(item.address)),
       date: escapeHtml(item.date),
       status: escapeHtml(item.status),
-      statusClass: escapeHtml(item.status_class),
+      statusClass: escapeHtml(item.status_class || (item.status === 'Entregue' || item.status === 'Concluído' ? 'status-success' : (item.status === 'Cancelado' ? 'status-danger' : 'status-progress'))),
       payment_status: escapeHtml(item.payment_status || 'Pendente'),
       created_at: item.created_at,
       total_order_amount: item.total_order_amount || null
     }));
+
+    // Merge and sort descending by created_at or id
+    mockData.clientHistory = [...pendingItems, ...historyItems].sort((a, b) => {
+      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+    });
+
   } catch (err) {
     console.error("Error fetching client history from Supabase:", err);
   }
@@ -1661,7 +1698,24 @@ function renderClientHistoryTable() {
 
   filteredHistory.forEach(order => {
     const tr = document.createElement('tr');
-    const isActive = order.status !== 'Entregue' && order.status !== 'Concluído';
+    tr.className = 'ops-table-row';
+    const isActive = order.status !== 'Entregue' && order.status !== 'Concluído' && order.status !== 'Cancelado';
+
+    // Composite ID Shield
+    let displayId = order.id;
+    let originLabel = 'Manual';
+    let originBadgeClass = 'badge-soft';
+
+    if (order.id.toLowerCase().includes('99food') || order.client === '99Food') {
+      displayId = order.id.replace(/99Food\s*#?/gi, '');
+      originLabel = '99Food';
+      originBadgeClass = 'badge-warning';
+    } else if (order.id.toLowerCase().includes('ifood') || order.client === 'iFood') {
+      displayId = order.id.replace(/iFood\s*#?/gi, '');
+      originLabel = 'iFood';
+      originBadgeClass = 'badge-danger';
+    }
+
     const statusHtml = `
       <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-start;">
         <span class="status-indicator ${order.statusClass}">${order.status}</span>
@@ -1670,12 +1724,30 @@ function renderClientHistoryTable() {
     `;
 
     tr.innerHTML = `
-      <td><strong>${order.id}</strong></td>
       <td>
-        <strong>${order.destName}</strong>
-        <p class="text-muted">${order.address}</p>
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <span class="order-id" style="font-family: var(--font-display); font-weight: 700; color: #fff;">
+            ${displayId}
+          </span>
+          <span class="badge ${originBadgeClass}" style="font-size: 0.65rem; padding: 2px 6px; width: fit-content; border-radius: 4px;">
+            ${originLabel}
+          </span>
+        </div>
       </td>
-      <td>${order.rider}</td>
+      <td>
+        <div style="display: flex; flex-direction: column;">
+          <strong style="color: #fff;">${order.destName}</strong>
+          <span class="text-muted" style="font-size: 0.8rem; display: inline-flex; align-items: center; gap: 4px; line-height: 1.4; margin-top: 2px;">
+            <i data-lucide="map-pin" style="width: 12px; height: 12px; flex-shrink: 0; color: #ffb700;"></i>
+            ${order.address}
+          </span>
+        </div>
+      </td>
+      <td>
+        <span class="badge badge-soft" style="background: rgba(0, 174, 239, 0.1); color: var(--accent-cyan); border: 1px solid rgba(0, 174, 239, 0.2); border-radius: 4px;">
+          ${order.rider}
+        </span>
+      </td>
       <td>${order.dist}</td>
       <td><strong class="text-yellow">${order.price}</strong></td>
       <td>${order.date}</td>
@@ -1683,6 +1755,8 @@ function renderClientHistoryTable() {
     `;
     tbody.appendChild(tr);
   });
+
+  if (window.lucide) lucide.createIcons();
 }
 
 // Generate next sequential TELE ID (#TELE-0001, #TELE-0002, ...)
