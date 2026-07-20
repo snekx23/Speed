@@ -1,0 +1,5 @@
+# A função recebe dois tipos de chamada sem sessão do Supabase Auth:
+# 1) registro do aparelho validado pelo PIN legado;
+# 2) Database Webhook autenticado pela chave interna PUSH_INTERNAL_KEY.
+[functions.push-rider]
+verify_jwt = false

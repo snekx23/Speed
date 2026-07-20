@@ -64,18 +64,22 @@ export async function inserirTele(tele: TeleNormalizada) {
 
   const payload: any = {
     id: dbId,
-    client: loja?.nome ?? 'Loja',
+    client: tele.estabelecimento_nome || loja?.nome || 'Loja',
     dest_name: tele.cliente_nome,
     address: tele.endereco,
     dist: '',
     price: precoTxt,
-    payment: `Pago (${origemTxt})`,
+    payment: tele.payment || `Pago (${origemTxt})`,
     cargo: itensTxt || 'Pedido',
     pickup_lat: loja?.pickup_lat ?? null,
     pickup_lng: loja?.pickup_lng ?? null,
     dest_lat: tele.lat ?? null,
     dest_lng: tele.lng ?? null,
     bidding_started_at: new Date().toISOString(),
+    external_id: tele.external_id,
+    food99_app_shop_id: tele.food99_app_shop_id ?? null,
+    observacao: tele.observacao ?? null,
+    pickup_code: tele.pickup_code ?? null,
   }
 
   if (tele.total_order_amount != null) {
@@ -94,6 +98,11 @@ export async function inserirTele(tele: TeleNormalizada) {
   if (error && error.code === '42703') {
     delete payload.total_order_amount
     delete payload.confirmation_code
+    delete payload.external_id
+    delete payload.food99_app_shop_id
+    delete payload.observacao
+    delete payload.pickup_code
+    delete payload.dispatch_sent_at
     const { error: retryError } = await sb.from('pending_deliveries').upsert(
       payload,
       { onConflict: 'id', ignoreDuplicates: true },
@@ -127,4 +136,49 @@ export async function isDuplicateTele(dbId: string): Promise<boolean> {
     .eq('id', dbId)
     .maybeSingle()
   return !error && data !== null
+}
+
+export async function check99FoodOrderState(orderId: string): Promise<'new' | 'pending' | 'history'> {
+  const sb = admin()
+  
+  // Check client_history (highest priority: once concluded, it is final)
+  const { data: history } = await sb
+    .from('client_history')
+    .select('id')
+    .like('id', `99Food %(${orderId})`)
+    .limit(1)
+    .maybeSingle()
+  if (history) return 'history'
+
+  // Check pending_deliveries
+  const { data: pending } = await sb
+    .from('pending_deliveries')
+    .select('id')
+    .like('id', `99Food %(${orderId})`)
+    .limit(1)
+    .maybeSingle()
+  if (pending) return 'pending'
+
+  return 'new'
+}
+
+/** Refreshes only 99Food metadata from a retry; it never changes rider/status/price. */
+export async function atualizarMetadados99Food(tele: any) {
+  const shortId = tele.codigo ? tele.codigo.replace('#', '') : tele.external_id.slice(-4)
+  const dbId = `99Food #${shortId} (${tele.external_id})`
+  const metadata: Record<string, unknown> = {
+    external_id: tele.external_id,
+    food99_app_shop_id: tele.food99_app_shop_id ?? null,
+    payment: tele.payment ?? 'Forma de pagamento nao informada - confirmar com a loja',
+  }
+  if (tele.total_order_amount != null) {
+    metadata.total_order_amount = `R$ ${Number(tele.total_order_amount).toFixed(2).replace('.', ',')}`
+  }
+  if (tele.observacao) metadata.observacao = tele.observacao
+  if (tele.pickup_code) metadata.pickup_code = tele.pickup_code
+
+  const sb = admin()
+  // ONLY update pending_deliveries. Never touch client_history!
+  const { error } = await sb.from('pending_deliveries').update(metadata).eq('id', dbId)
+  if (error) throw error
 }

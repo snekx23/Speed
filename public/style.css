@@ -49,6 +49,54 @@
   --transition-normal: 0.3s ease;
 }
 
+/* Seletores nativos: evita texto claro sobre o menu claro padrão do navegador. */
+select option {
+  background-color: #1e1e24 !important;
+  color: #ffffff !important;
+  padding: 10px !important;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background-color: #353542 !important;
+  color: #ffffff !important;
+}
+
+/* Menus customizados usados pelos filtros, autocomplete e dropdowns do painel. */
+.dropdown-menu,
+.custom-dropdown-menu,
+.select-dropdown,
+[role="listbox"] {
+  background-color: #18181c !important;
+  color: #ffffff !important;
+  border: 1px solid #353542 !important;
+}
+
+.dropdown-menu .dropdown-item,
+.custom-dropdown-menu .dropdown-item,
+.custom-dropdown-menu li,
+.select-dropdown .dropdown-item,
+.select-dropdown li,
+[role="listbox"] [role="option"] {
+  display: block;
+  background-color: transparent !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+.dropdown-menu .dropdown-item:hover,
+.dropdown-menu .dropdown-item:focus,
+.custom-dropdown-menu .dropdown-item:hover,
+.custom-dropdown-menu li:hover,
+.select-dropdown .dropdown-item:hover,
+.select-dropdown li:hover,
+[role="listbox"] [role="option"]:hover,
+[role="listbox"] [role="option"][aria-selected="true"] {
+  background-color: #353542 !important;
+  color: #ffffff !important;
+}
+
 /* Global Reset */
 * {
   box-sizing: border-box;
@@ -773,6 +821,68 @@ select {
 .nav-item:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Sidebar accordion used by the Extracts menu. */
+.sidebar-dropdown {
+  width: 100%;
+}
+
+.sidebar-dropdown-toggle {
+  justify-content: flex-start;
+}
+
+.sidebar-dropdown-chevron {
+  margin-left: auto;
+  transition: transform 0.3s ease-out;
+}
+
+.sidebar-dropdown-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 0;
+  overflow: hidden;
+  padding: 0 0 0 14px;
+  transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+}
+
+.sidebar-dropdown.open .sidebar-dropdown-menu {
+  max-height: 112px;
+  padding-top: 4px;
+}
+
+.sidebar-dropdown.open .sidebar-dropdown-chevron {
+  transform: rotate(180deg);
+}
+
+.sidebar-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-primary);
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-submenu-item i {
+  width: 16px;
+  height: 16px;
+}
+
+.sidebar-submenu-item:hover,
+.sidebar-submenu-item.active {
+  background-color: rgba(255, 210, 0, 0.04);
+  color: var(--primary);
 }
 
 .sidebar-footer {
@@ -3329,3 +3439,15 @@ input:checked + .slider:before {
   color: var(--primary);
 }
 
+.teles-table-container {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}

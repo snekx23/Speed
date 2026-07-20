@@ -45,6 +45,11 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.removeItem('speedMotoSession');
     }
   }
+
+  const enablePushBtn = document.getElementById('pwa-enable-push');
+  if (enablePushBtn) {
+    enablePushBtn.addEventListener('click', ativarAlertasSegundoPlano);
+  }
 });
 
 function registerSW() {
@@ -372,7 +377,7 @@ function switchPWATab(tab) {
   if (tab === 'map') {
     setTimeout(() => {
       if (!riderMap) initRiderMap();
-      else riderMap.invalidateSize();
+      else if (riderMap && typeof riderMap.resize === 'function') riderMap.resize();
     }, 100);
   } else if (tab === 'reports') {
     loadReportsData();
@@ -437,7 +442,7 @@ async function loadMyDeliveries() {
     const fixedPrice = getFixedPriceByAddress(item.address);
     return {
       ...item,
-      price: `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`
+      price: item.price ? String(item.price) : `R$ ${fixedPrice.toFixed(2).replace('.', ',')}`
     };
   });
   const currentIds = activeDeliveries.map(t => t.id);
@@ -481,6 +486,23 @@ function getFixedPriceByAddress(address) {
   return 8.00;
 }
 
+function getCleanDistance(dist) {
+  if (!dist) return '—';
+  const text = String(dist).split('|')[0].trim();
+  return text || '—';
+}
+
+function getPaymentMethod(order) {
+  if (!order) return 'A combinar';
+  const explicitPayment = String(order.payment || '').trim();
+  if (explicitPayment) return explicitPayment;
+
+  // Compatibilidade com teles antigas, que guardavam o pagamento após "|" em dist.
+  const legacyParts = String(order.dist || '').split('|');
+  return String(legacyParts[1] || order.payment_status || 'A combinar').trim();
+}
+
+
 function renderTeleCards(deliveries) {
   const container = document.getElementById('pwa-teles-container');
 
@@ -497,15 +519,31 @@ function renderTeleCards(deliveries) {
 
   container.innerHTML = '';
   deliveries.forEach(order => {
-    const isPickup   = order.status === 'A caminho da coleta';
-    const isTransit  = order.status === 'Em rota de entrega';
+    const isPickup   = String(order.status || '').toLowerCase() === 'a caminho da coleta';
+    const isTransit  = String(order.status || '').toLowerCase() === 'em rota de entrega' || 
+                       String(order.status || '').toLowerCase() === 'em rota' ||
+                       String(order.status || '').toLowerCase() === 'coletado';
+
+    const stateColor = isTransit ? '#22c55e' : '#ffb700';
+    const stateText  = isTransit ? 'EM ROTA DE ENTREGA' : 'A coletar';
+
+    const paymentMethod = getPaymentMethod(order);
+    const payLower = paymentMethod.toLowerCase();
+
+    const is99Food = String(order.id || '').startsWith('99Food') || 
+                      String(order.food99_app_shop_id || '') !== '' ||
+                      payLower.includes('99food') || 
+                      String(order.client || '').toLowerCase().includes('99food');
+
+    const isIfood = payLower.includes('ifood') || String(order.client || '').toLowerCase().includes('ifood');
+    const isIntegration = is99Food || isIfood || payLower.includes('ifood') || payLower.includes('99food');
 
     const fixedPrice = getFixedPriceByAddress(order.address);
     const valorRepasseLiquido = fixedPrice * 0.90;
 
     // Rule 2: Address Flow on UI
     const displayAddress = isPickup 
-      ? 'Rua Ana Rosa 221, Ipiranga - Sapucaia' 
+      ? (order.pickup_address || 'Rua Ana Rosa 221, Ipiranga - Sapucaia') 
       : (order.address || 'Sem endereço');
 
     let mapsUrl = '';
@@ -531,24 +569,47 @@ function renderTeleCards(deliveries) {
       }
     }
 
-    const paymentMethod = getPaymentMethod(order);
-    const isIntegration = paymentMethod.toLowerCase().includes('ifood') || paymentMethod.toLowerCase().includes('99food');
+    // Rule for online payment
+    const hasPix = payLower.includes('pix');
+    const hasOnline = payLower.includes('online');
+    const hasPago = payLower.includes('pago');
+    const hasApp = payLower.includes('app');
     
-    // Format payment status text
-    const isOnline = paymentMethod.toLowerCase().includes('pago');
+    const isExplicitCash = payLower.includes('dinheiro');
+    const isExplicitCardDelivery = payLower.includes('maquina') || payLower.includes('máquina') || payLower.includes('cartão na entrega') || payLower.includes('cartao na entrega');
+    
+    const isOnline = hasPix || hasOnline || hasPago || hasApp || (isIntegration && !isExplicitCash && !isExplicitCardDelivery);
+    
     let paymentBadge = 'A combinar';
-    if (paymentMethod.toLowerCase().includes('dinheiro')) paymentBadge = 'Dinheiro';
-    else if (paymentMethod.toLowerCase().includes('cartão') || paymentMethod.toLowerCase().includes('cartao')) paymentBadge = 'Cartão';
-    else if (paymentMethod.toLowerCase().includes('pix')) paymentBadge = 'PIX';
-    else if (paymentMethod.toLowerCase().includes('ifood')) paymentBadge = 'iFood';
-    else if (paymentMethod.toLowerCase().includes('99food')) paymentBadge = '99Food';
+    if (isExplicitCash) paymentBadge = 'Dinheiro';
+    else if (payLower.includes('cartão') || payLower.includes('cartao')) paymentBadge = 'Cartão';
+    else if (hasPix) paymentBadge = 'PIX';
+    else if (isIfood) paymentBadge = 'iFood';
+    else if (is99Food) paymentBadge = '99Food';
 
+    // 1. Extração segura do código curto de 99Food ou fallback
+    let rawCode = '';
+    const idStr = String(order.id || '');
+    const match99 = idStr.match(/#(\d+)/);
+    if (match99) {
+      rawCode = match99[1];
+    } else {
+      rawCode = order.codigo || order.external_id || order.id || '00';
+    }
+    const digits = String(rawCode).replace(/[^\d]/g, '');
+    const codigoExibicao = digits.length >= 2 ? digits.slice(-2) : digits.padStart(2, '0');
+
+    const customerName = escapeHtml(String(order.destName || order.dest_name || 'Cliente').trim());
+    const clientName = escapeHtml(String(order.client || 'Plataforma').trim());
     const cleanDist = getCleanDistance(order.dist);
     const cleanTotalAmount = order.total_order_amount || order.price || 'R$ 0,00';
     
-    const paymentText = isOnline
-      ? `${paymentBadge} - ${order.client || 'Plataforma'} Pago: ${cleanTotalAmount}`
-      : `${paymentBadge} - Cobrar na Entrega: ${cleanTotalAmount}`;
+    let paymentText = '';
+    if (isOnline) {
+      paymentText = "Pago via PIX / Online - NÃO COBRAR DO CLIENTE";
+    } else {
+      paymentText = `${paymentBadge} - Cobrar na Entrega: ${cleanTotalAmount}`;
+    }
 
     // Parse items count from cargo
     let itemsCount = 1;
@@ -568,100 +629,141 @@ function renderTeleCards(deliveries) {
     }
 
     const card = document.createElement('div');
-    card.className = 'pwa-tele-card';
+    card.id = `tele-card-${order.id}`;
+    card.className = `pwa-tele-card pwa-tele-card-compact${isTransit ? ' is-collected' : ''}`;
     card.innerHTML = `
-      <div class="pwa-tele-header">
-        <strong class="pwa-tele-id">${order.id}</strong>
-        <span class="pwa-tele-status ${order.status_class || 'status-progress'}">${order.status}</span>
-      </div>
-      <div class="pwa-tele-body" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem;">
-        
-        <!-- Customer Details -->
-        <div>
-          <span style="color: var(--muted); font-size: 0.8rem;">Nome do Cliente</span>
-          <div style="font-weight: 600; color: var(--text); margin-top: 2px;">Nome: ${order.destName || order.dest_name || 'Cliente'}</div>
+      <!-- Header / Summary (Click to expand) - Flexbox dynamic layout to prevent cutting text -->
+      <button class="pwa-tele-summary" onclick="toggleTeleDetails('${order.id}')" style="border: none; background: transparent; padding: 12px 16px; width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px; height: auto; min-height: 56px; max-height: none; box-sizing: border-box;">
+        <div class="pwa-tele-summary-main" style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0;">
+          <div class="pwa-tele-summary-customer" style="white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.3; font-size: 0.88rem; font-weight: 700; color: #fff;">#${codigoExibicao} - ${customerName}</div>
+          <div class="pwa-tele-summary-store" style="white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.3; font-size: 0.78rem; color: var(--muted);">${clientName}</div>
         </div>
+        <div class="pwa-tele-summary-meta" style="text-align: right; display: flex; flex-direction: column; gap: 4px; justify-content: center; min-width: 80px; flex-shrink: 0; align-items: flex-end;">
+          <div class="pwa-tele-summary-value" style="white-space: nowrap; color: var(--primary); font-size: 0.9rem; font-weight: 600;">${formatMoney(valorRepasseLiquido)}</div>
+          <div class="pwa-tele-collection-state" style="white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.2; font-size: 0.72rem; font-weight: 800; color: ${stateColor}; text-transform: uppercase;">${stateText}</div>
+        </div>
+        <div class="pwa-tele-expand-icon" style="font-weight: bold; font-size: 1.1rem; color: var(--primary); flex-shrink: 0; margin-left: 2px;">v</div>
+      </button>
 
-        <!-- Destination Address (Bold Highlighted) -->
-        <div style="margin-top: 4px;">
-          <span style="color: var(--muted); font-size: 0.8rem;">Endereço de Entrega</span>
-          <div style="font-weight: 700; color: #fff; font-size: 0.95rem; line-height: 1.4; margin-top: 2px; display: flex; align-items: flex-start; gap: 6px;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
-            <span>${displayAddress}</span>
-          </div>
-        </div>
+      <!-- Details Container (Retractable Accordion) -->
+      <div class="pwa-tele-details hidden">
+        <div class="pwa-tele-details-content">
+          <div class="pwa-tele-body" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.85rem; padding-top: 10px;">
+            
+            <!-- Customer Details -->
+            <div>
+              <span style="color: var(--muted); font-size: 0.8rem;">Nome do Cliente</span>
+              <div style="font-weight: 600; color: var(--text); margin-top: 2px;">Nome: ${customerName}</div>
+            </div>
 
-        <!-- Order Metadata -->
-        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: var(--muted);">Horário do Pedido:</span>
-            <span style="color: var(--text); font-weight: 500;">Pedido feito em: ${formatOrderDateForPWA(order.date, order.created_at)}</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: var(--muted);">Quantidade de Itens:</span>
-            <span style="color: var(--text); font-weight: 500;">Itens: ${itemsCount} itens</span>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: var(--muted);">Distância da Rota:</span>
-            <span style="color: var(--text); font-weight: 600;">${cleanDist}</span>
-          </div>
-        </div>
+            <!-- Destination Address (Bold Highlighted) -->
+            <div style="margin-top: 4px;">
+              <span style="color: var(--muted); font-size: 0.8rem;">Endereço de Entrega</span>
+              <div style="font-weight: 700; color: #fff; font-size: 0.95rem; line-height: 1.4; margin-top: 2px; display: flex; align-items: flex-start; gap: 6px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; margin-top: 2px;"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                <span>${escapeHtml(displayAddress)}</span>
+              </div>
+            </div>
 
-        <!-- Financial Summary -->
-        <div class="pwa-tele-financials" style="margin: 10px 0; padding: 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-direction: column; gap: 4px;">
-            <span style="color: var(--muted); font-size: 0.8rem;">Forma de Pagamento</span>
-            <strong style="font-size: 0.9rem;">${paymentText}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-            <span style="color: var(--muted);">Valor total do pedido:</span>
-            <strong style="color: var(--text); font-size: 1rem;">${cleanTotalAmount}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
-            <span style="color: var(--success); font-weight: 600;">Recebido da Tele:</span>
-            <strong style="font-size: 1.15rem; color: var(--primary); font-family: var(--font-display);">${formatMoney(valorRepasseLiquido)}</strong>
-          </div>
-        </div>
+            <!-- Observações do Comprador (backend unificado) -->
+            <div class="pwa-observation-box" style="margin: 10px 0; padding: 10px 12px; background: rgba(255, 193, 7, 0.10); border-left: 4px solid #ffc107; border-radius: 4px; color: #ffffff;">
+              <strong style="display: block; color: #ffc107; font-size: 0.78rem; letter-spacing: .02em; text-transform: uppercase; font-weight: 700;">Observações da Entrega:</strong>
+              <p style="margin: 5px 0 0; color: #ffffff; font-size: 0.9rem; font-weight: 600; line-height: 1.4; white-space: pre-wrap;">${escapeHtml(order.observacao || "Sem observações")}</p>
+            </div>
 
-        <!-- Google Maps Link -->
-        <div style="margin-top: 4px;">
-          <a href="${mapsUrl}" target="_blank" class="pwa-btn pwa-btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-size: 0.8rem; padding: 8px 12px; background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid var(--border); border-radius: var(--radius); font-weight: 600; cursor: pointer;">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
-            Abrir no Google Maps
-          </a>
-        </div>
-        
-        <!-- PWA Code Verification Trava -->
-        ${isTransit && isIntegration ? `
-          <div class="pwa-code-verification-container" style="margin-top: 10px; padding: 12px; background: rgba(255, 183, 0, 0.04); border: 1px solid rgba(255, 183, 0, 0.15); border-radius: var(--radius); width: 100%;">
-            <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
-              Código de confirmação do cliente (4 dígitos)
-            </label>
-            <input type="number" id="confirmation_code" placeholder="Insira o código de confirmação do cliente" style="width: 100%; height: 42px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); color: #fff; text-align: center; font-size: 1.1rem; font-weight: 800; outline: none; transition: border-color 0.2s;" oninput="if(this.value.length > 4) this.value = this.value.slice(0, 4);" />
+
+
+            <!-- Order Metadata -->
+            <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: var(--muted);">Horário do Pedido:</span>
+                <span style="color: var(--text); font-weight: 500;">Pedido feito em: ${formatOrderDateForPWA(order.date, order.created_at)}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: var(--muted);">Distância Estimada:</span>
+                <span style="color: var(--text); font-weight: 500;">Distância: ${cleanDist}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: var(--muted);">Volume do Pedido:</span>
+                <span style="color: var(--text); font-weight: 500;">Quantidade de itens: ${itemsCount}</span>
+              </div>
+            </div>
+
+            <!-- Financial Summary -->
+            <div class="pwa-tele-financials" style="margin: 10px 0; padding: 12px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-direction: column; gap: 4px;">
+                <span style="color: var(--muted); font-size: 0.8rem;">Forma de Pagamento</span>
+                <strong style="font-size: 0.9rem;">${paymentText}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+                <span style="color: var(--muted);">Valor total do pedido:</span>
+                <strong style="color: var(--text); font-size: 1rem;">${cleanTotalAmount}</strong>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+                <span style="color: var(--success); font-weight: 600;">Recebido da Tele:</span>
+                <strong style="font-size: 1.15rem; color: var(--primary); font-family: var(--font-display);">${formatMoney(valorRepasseLiquido)}</strong>
+              </div>
+            </div>
+
+            <!-- Google Maps Link -->
+            <div style="margin-top: 4px;">
+              <a href="${mapsUrl}" target="_blank" class="pwa-btn pwa-btn-secondary" style="display: flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; font-size: 0.8rem; padding: 8px 12px; background: rgba(255, 255, 255, 0.05); color: #fff; border: 1px solid var(--border); border-radius: var(--radius); font-weight: 600; cursor: pointer;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
+                Abrir no Google Maps
+              </a>
+            </div>
+            
+            <!-- PWA Code Verification Trava -->
+            ${isTransit && isIntegration ? `
+              <div class="pwa-code-verification-container" style="margin-top: 10px; padding: 12px; background: rgba(255, 183, 0, 0.04); border: 1px solid rgba(255, 183, 0, 0.15); border-radius: var(--radius); width: 100%;">
+                <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Código de confirmação do cliente (4 dígitos)
+                </label>
+                <input type="number" id="confirmation_code" placeholder="Insira o código de confirmação do cliente" style="width: 100%; height: 42px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); color: #fff; text-align: center; font-size: 1.1rem; font-weight: 800; outline: none; transition: border-color 0.2s;" oninput="if(this.value.length > 4) this.value = this.value.slice(0, 4);" />
+              </div>
+            ` : ''}
           </div>
-        ` : ''}
-      </div>
-      <div class="pwa-tele-footer">
-        ${isPickup ? `
-          <button class="pwa-btn pwa-btn-primary" onclick="confirmPickup('${order.id}')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4a2 2 0 0 0-2 2v6c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-            Confirmar Coleta
-          </button>
-        ` : ''}
-        ${isTransit ? `
-          <button class="pwa-btn pwa-btn-success" onclick="confirmDelivery('${order.id}')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
-            Confirmar Entrega
-          </button>
-        ` : ''}
-        ${!isPickup && !isTransit ? `
-          <span class="pwa-tele-waiting">Aguardando início...</span>
-        ` : ''}
+          <div class="pwa-tele-footer" style="margin-top: 12px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 10px;">
+            ${isPickup ? `
+              <button class="pwa-btn pwa-btn-primary" onclick="confirmPickup('${order.id}')">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4a2 2 0 0 0-2 2v6c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Z"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+                Confirmar Coleta
+              </button>
+            ` : ''}
+            ${isTransit ? `
+              <button class="pwa-btn pwa-btn-success" onclick="confirmDelivery('${order.id}')">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                Confirmar Entrega
+              </button>
+            ` : ''}
+            ${!isPickup && !isTransit ? `
+              <span class="pwa-tele-waiting">Aguardando início...</span>
+            ` : ''}
+          </div>
+        </div>
       </div>
     `;
     container.appendChild(card);
   });
 }
+
+window.toggleTeleDetails = function(orderId) {
+  const card = document.getElementById(`tele-card-${orderId}`);
+  if (!card) return;
+
+  const details = card.querySelector('.pwa-tele-details');
+  const icon = card.querySelector('.pwa-tele-expand-icon');
+
+  if (details) {
+    const isHidden = details.classList.toggle('hidden');
+    card.classList.toggle('is-expanded', !isHidden);
+    if (icon) {
+      icon.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(180deg)';
+      icon.style.transition = 'transform 0.2s ease';
+    }
+  }
+};
+
 
 // ─── DELIVERY ACTIONS ─────────────────────────────────────────────────────────
 
@@ -674,7 +776,7 @@ async function confirmPickup(deliveryId) {
     const { data: fleetRider, error: fleetErr } = await db
       .from('fleet')
       .select('bypass_distance_limit')
-      .eq('name', currentRider.name)
+      .eq('id', currentRider.id)
       .single();
 
     if (fleetErr) throw fleetErr;
@@ -720,6 +822,44 @@ async function confirmPickup(deliveryId) {
     return;
   }
 
+  const order = activeDeliveriesList.find(d => d.id === deliveryId);
+  const paymentMethod = getPaymentMethod(order || {});
+  const is99Food = String(deliveryId).startsWith('99Food') || 
+                    paymentMethod.toLowerCase().includes('99food') || 
+                    String(order?.client || '').toLowerCase().includes('99food');
+
+  if (is99Food) {
+    try {
+      console.log(`Disparando despacho na 99Food para o pedido ${deliveryId}...`);
+      
+      const rawId = order?.external_id || order?.id || deliveryId;
+      const matchParentheses = String(rawId).match(/\((\d+)\)/);
+      const cleanOrderId = matchParentheses ? String(matchParentheses[1]) : String(rawId).replace(/[^\d]/g, '');
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/food99-pedido`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        },
+        body: JSON.stringify({
+          order_id: cleanOrderId,
+          acao: 'despachar'
+        })
+      });
+      const resData = await response.json();
+      if (!response.ok || !resData.ok) {
+        throw new Error(resData.erro || 'Falha ao despachar na 99Food');
+      }
+      console.log('Sincronização de despacho 99Food realizada com sucesso.');
+    } catch (syncErr) {
+      console.error('Erro na sincronização de despacho 99Food:', syncErr);
+      alert('Erro ao sincronizar com a 99Food: ' + syncErr.message);
+      if (btn) { btn.disabled = false; btn.innerText = 'Confirmar Coleta'; }
+      return;
+    }
+  }
+
   const { error } = await db
     .from('client_history')
     .update({ status: 'Em rota de entrega', status_class: 'status-progress' })
@@ -735,7 +875,7 @@ async function confirmPickup(deliveryId) {
   await db
     .from('fleet')
     .update({ status: 'Em rota de entrega', status_class: 'status-progress' })
-    .eq('name', currentRider.name);
+    .eq('id', currentRider.id);
 
   currentRider.status = 'Em rota de entrega';
   localStorage.setItem('speedMotoSession', JSON.stringify(currentRider));
@@ -751,17 +891,57 @@ async function confirmDelivery(deliveryId) {
 
   const order = activeDeliveriesList.find(d => d.id === deliveryId);
   const paymentMethod = getPaymentMethod(order || {});
-  const isIntegration = paymentMethod.toLowerCase().includes('ifood') || paymentMethod.toLowerCase().includes('99food');
 
-  if (isIntegration) {
-    const cardElement = btn ? btn.closest('.pwa-tele-card') : null;
-    const codeInput = cardElement ? cardElement.querySelector('#confirmation_code') : document.getElementById('confirmation_code');
-    const codeValue = codeInput ? codeInput.value.trim() : '';
+  const is99Food = String(order?.id || '').startsWith('99Food') || 
+                    String(order?.food99_app_shop_id || '') !== '' ||
+                    paymentMethod.toLowerCase().includes('99food') || 
+                    String(order?.client || '').toLowerCase().includes('99food');
+  const isIntegration = paymentMethod.toLowerCase().includes('ifood') || 
+                        paymentMethod.toLowerCase().includes('99food') || 
+                        is99Food;
 
-    const correctCode = String(order?.confirmation_code || '').trim() || '1234';
+  const correctCode = String(order?.confirmation_code || '').trim();
+  let codeValue = '';
 
-    if (!codeValue || codeValue !== correctCode) {
-      alert("Código incorreto! Solicite os 4 dígitos corretos ao cliente.");
+  if (isIntegration || correctCode) {
+    const userInput = prompt("Digite o código de confirmação de 4 dígitos recebido do cliente:");
+    const expected = correctCode || '1234'; 
+    if (userInput === null || userInput.trim() !== expected) {
+      alert("Código incorreto ou inválido!");
+      if (btn) { btn.disabled = false; btn.innerText = 'Confirmar Entrega'; }
+      return;
+    }
+    codeValue = userInput.trim();
+  }
+
+  if (is99Food) {
+    try {
+      console.log(`Disparando finalização na 99Food para o pedido ${deliveryId}...`);
+
+      const rawId = order?.external_id || order?.id || deliveryId;
+      const matchParentheses = String(rawId).match(/\((\d+)\)/);
+      const cleanOrderId = matchParentheses ? String(matchParentheses[1]) : String(rawId).replace(/[^\d]/g, '');
+
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/food99-pedido`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_KEY}`
+        },
+        body: JSON.stringify({
+          order_id: cleanOrderId,
+          acao: 'entregue',
+          confirmation_code: codeValue
+        })
+      });
+      const resData = await response.json();
+      if (!response.ok || !resData.ok) {
+        throw new Error(resData.erro || 'Falha ao finalizar na 99Food');
+      }
+      console.log('Sincronização de entrega 99Food realizada com sucesso.');
+    } catch (syncErr) {
+      console.error('Erro na sincronização de entrega 99Food:', syncErr);
+      alert('Erro ao finalizar entrega na 99Food: ' + syncErr.message);
       if (btn) { btn.disabled = false; btn.innerText = 'Confirmar Entrega'; }
       return;
     }
@@ -771,7 +951,7 @@ async function confirmDelivery(deliveryId) {
     const { data: fleetRider, error: fleetErr } = await db
       .from('fleet')
       .select('bypass_distance_limit')
-      .eq('name', currentRider.name)
+      .eq('id', currentRider.id)
       .single();
 
     if (fleetErr) throw fleetErr;
@@ -831,7 +1011,7 @@ async function confirmDelivery(deliveryId) {
   await db
     .from('fleet')
     .update({ status: 'Disponível', status_class: 'status-success', delivery: 'Nenhuma' })
-    .eq('name', currentRider.name);
+    .eq('id', currentRider.id);
 
   currentRider.status = 'Disponível';
   localStorage.setItem('speedMotoSession', JSON.stringify(currentRider));
@@ -1095,6 +1275,16 @@ function startGeolocation() {
   watchId = navigator.geolocation.watchPosition(
     async (pos) => {
       lastPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+      // Consulta nível de bateria em tempo real para sincronizar com a telemetria do GPS
+      if (navigator.getBattery) {
+        try {
+          const battery = await navigator.getBattery();
+          currentBatteryLevel = Math.round(battery.level * 100);
+        } catch (err) {
+          console.warn("Falha ao obter nível de bateria durante rastreio:", err);
+        }
+      }
       if (riderMap) placeRiderMarker(lastPosition.lat, lastPosition.lng);
 
       // Update location and battery level in Supabase fleet table in real-time
@@ -1557,23 +1747,34 @@ function updateMapOverlays(deliveries) {
     let title = '';
     let addressInfo = order.address || '';
 
-    if (order.status === 'Em rota de entrega') {
+    // Check if collected
+    const isCollected = String(order.status || '').toLowerCase().includes('rota') || 
+                        String(order.status || '').toLowerCase().includes('entrega') || 
+                        String(order.status || '').toLowerCase().includes('coletada') ||
+                        String(order.status || '').toLowerCase().includes('✓');
+
+    if (isCollected) {
       targetLat = order.dest_lat !== null ? parseFloat(order.dest_lat) : null;
       targetLng = order.dest_lng !== null ? parseFloat(order.dest_lng) : null;
-      title = `Entrega: ${order.destName || 'Cliente'}`;
+      title = `Entrega: ${order.destName || order.dest_name || 'Cliente'}`;
+    } else {
+      // Coleta / A caminho da coleta
+      targetLat = order.pickup_lat !== null ? parseFloat(order.pickup_lat) : null;
+      targetLng = order.pickup_lng !== null ? parseFloat(order.pickup_lng) : null;
+      title = `Coleta: ${order.client || 'Estabelecimento'}`;
     }
 
     if (targetLat !== null && targetLng !== null && !isNaN(targetLat) && !isNaN(targetLng)) {
       currentActiveIds.add(order.id);
       bounds.extend([targetLng, targetLat]);
 
-      // Define style: Green for Delivery (entrega)
-      const bgColor = '#10b981';
-      const shadowColor = 'rgba(16,185,129,0.6)';
+      // Define style: Green for collected, Orange/Yellow otherwise
+      const bgColor = isCollected ? '#10b981' : '#ffb700';
+      const shadowColor = isCollected ? 'rgba(16,185,129,0.6)' : 'rgba(255,183,0,0.6)';
       const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"></path><circle cx="12" cy="10" r="3"></circle></svg>`;
 
       const iconHtml = `
-        <div style="background: ${bgColor}; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px ${shadowColor};">
+        <div style="background: ${bgColor}; border: 2px solid #fff; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 10px ${shadowColor}; transition: background-color 0.3s;">
           ${iconSvg}
         </div>
       `;
@@ -1581,12 +1782,28 @@ function updateMapOverlays(deliveries) {
       const mapsUrl = order.address 
         ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(order.address)}&travelmode=driving`
         : `https://www.google.com/maps/dir/?api=1&destination=${targetLat},${targetLng}&travelmode=driving`;
+
+      // 1. Extração segura do código curto de 99Food ou fallback
+      let rawCode = '';
+      const idStr = String(order.id || '');
+      const match99 = idStr.match(/#(\d+)/);
+      if (match99) {
+        rawCode = match99[1];
+      } else {
+        rawCode = order.codigo || order.external_id || order.id || '00';
+      }
+      const digits = String(rawCode).replace(/[^\d]/g, '');
+      const codigoExibicao = digits.length >= 2 ? digits.slice(-2) : digits.padStart(2, '0');
+
+      const customerName = escapeHtml(String(order.destName || order.dest_name || 'Cliente').trim());
+      const orderAddress = escapeHtml(String(order.address || 'Sem endereço').trim());
       
       const popupContent = `
-        <div style="font-family: var(--font-sans); color: #fff; padding: 2px;">
-          <strong style="font-size: 0.9rem; display: block; margin-bottom: 4px;">${title}</strong>
-          <span style="font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 8px;">${addressInfo}</span>
-          <a href="${mapsUrl}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; color: #ffb700; text-decoration: none; font-weight: 700; font-size: 0.8rem; background: rgba(255,183,0,0.1); padding: 6px 10px; border-radius: 4px; border: 1px solid #ffb700; cursor: pointer;">
+        <div style="font-family: var(--font-sans); color: #fff; padding: 6px; min-width: 180px;">
+          <div style="font-weight: 800; font-size: 0.95rem; color: #ffb700; margin-bottom: 4px;">#${codigoExibicao}</div>
+          <strong style="font-size: 0.85rem; display: block; margin-bottom: 2px; color: #fff;">Cliente: ${customerName}</strong>
+          <span style="font-size: 0.78rem; color: var(--muted); display: block; margin-bottom: 8px; line-height: 1.3;">Endereço: ${orderAddress}</span>
+          <a href="${mapsUrl}" target="_blank" style="display: inline-flex; align-items: center; gap: 6px; color: #ffb700; text-decoration: none; font-weight: 700; font-size: 0.75rem; background: rgba(255,183,0,0.1); padding: 5px 8px; border-radius: 4px; border: 1px solid #ffb700; cursor: pointer; width: 100%; justify-content: center; box-sizing: border-box;">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ffb700" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 2px;"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
             Navegar no Google Maps
           </a>
@@ -1609,28 +1826,29 @@ function updateMapOverlays(deliveries) {
 
         entry.marker.getPopup().setHTML(popupContent);
 
-        if (lastPosition && lastPosition.lat && lastPosition.lng) {
-          safeAddRouteLayer(riderMap, sourceId, layerId, [lastPosition.lat, lastPosition.lng], [targetLat, targetLng], bgColor);
-        } else {
-          safeRemoveRouteLayer(riderMap, sourceId, layerId);
+        // Dynamic element update (e.g. status changes green/orange)
+        const el = entry.marker.getElement();
+        const innerDiv = el.querySelector('div');
+        if (innerDiv) {
+          innerDiv.style.background = bgColor;
+          innerDiv.style.boxShadow = `0 0 10px ${shadowColor}`;
         }
+
+        safeRemoveRouteLayer(riderMap, sourceId, layerId);
       } else {
         // Create new marker
         const el = document.createElement('div');
         el.innerHTML = iconHtml;
 
-        const popup = new mapboxgl.Popup({ offset: 15, closeOnClick: false, autoClose: false }).setHTML(popupContent);
+        // InfoWindow popup opens on click (closeOnClick: true, closeButton: true, no autoOpen)
+        const popup = new mapboxgl.Popup({ offset: 15, closeOnClick: true, closeButton: true }).setHTML(popupContent);
         
         const marker = new mapboxgl.Marker(el)
           .setLngLat([targetLng, targetLat])
           .setPopup(popup)
           .addTo(riderMap);
 
-        marker.togglePopup(); // Open automatically by default
-
-        if (lastPosition && lastPosition.lat && lastPosition.lng) {
-          safeAddRouteLayer(riderMap, sourceId, layerId, [lastPosition.lat, lastPosition.lng], [targetLat, targetLng], bgColor);
-        }
+        safeRemoveRouteLayer(riderMap, sourceId, layerId);
 
         activeRiderDeliveryMarkers[order.id] = { marker, lat: targetLat, lng: targetLng };
       }
@@ -1911,7 +2129,7 @@ async function loadWeeklyClosures() {
     });
 
     (consumables || []).forEach(item => {
-      const itemDate = item.created_at ? new Date(item.created_at) : new Date();
+      const itemDate = item.data_competencia ? parseLocalDate(item.data_competencia) : (item.created_at ? new Date(item.created_at) : new Date());
       const mon = getMondayOfDate(itemDate);
       const key = mon.toISOString();
 
@@ -2122,13 +2340,31 @@ function renderConsumablesList(list) {
     const amount = parseFloat(item.amount) || 0;
     totalAmount += amount;
 
-    const date = item.created_at ? new Date(item.created_at).toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }) : 'Data desconhecida';
+    // Regra de data dos consumíveis: exibe competência e só mostra hora/minuto se for hoje
+    let date = 'Data desconhecida';
+    if (item.data_competencia) {
+      const todayISO = new Date().toISOString().split('T')[0];
+      if (item.data_competencia === todayISO && item.created_at) {
+        date = new Date(item.created_at).toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+      } else {
+        const [y, m, d] = item.data_competencia.split('-');
+        date = `${d}/${m}/${y}`;
+      }
+    } else if (item.created_at) {
+      date = new Date(item.created_at).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
 
     const card = document.createElement('div');
     card.className = 'pwa-report-item';
@@ -2328,3 +2564,51 @@ async function sendMotoChatMessage(event) {
     showPWAToast("Erro ao enviar mensagem.");
   }
 }
+
+window.refreshPWAApp = async function() {
+  console.log("Iniciando atualização forçada do PWA...");
+  
+  // 1. Atualizar Service Worker se disponível
+  if (navigator.serviceWorker) {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const registration of registrations) {
+        await registration.update();
+      }
+      console.log("Service Worker atualizado.");
+    } catch (err) {
+      console.warn("Falha ao atualizar o Service Worker:", err);
+    }
+  }
+
+  // 2. Limpar o cache do navegador
+  if (window.caches) {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(key => caches.delete(key)));
+      console.log("Cache limpo.");
+    } catch (err) {
+      console.warn("Falha ao deletar caches antigos:", err);
+    }
+  }
+
+  // 3. Forçar recarregamento total
+  console.log("Recarregando página...");
+  window.location.reload(true);
+};
+
+
+async function ativarAlertasSegundoPlano() {
+  if (!('Notification' in window)) {
+    alert('Este navegador não suporta notificações.');
+    return;
+  }
+  const permissao = await Notification.requestPermission();
+  if (permissao === 'granted') {
+    alert('Alertas em segundo plano ativados com sucesso!');
+  } else {
+    alert('Permissão negada. Ative nas configurações do celular.');
+  }
+}
+
+

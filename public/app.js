@@ -14,6 +14,7 @@ if (window.supabase) {
 }
 
 // Mock Database States (updated dynamically from Supabase)
+let clientHistoryLimit = 50;
 const mockData = {
   activeProfile: 'owner', // 'owner', 'client', 'order'
   fleet: [],
@@ -45,6 +46,7 @@ async function fetchCommerces() {
       { id: '3', nome: 'Dogão Express' },
       { id: '4', nome: 'Bora Açaí' }
     ];
+    populateCommercesSelects();
     return;
   }
   try {
@@ -78,8 +80,42 @@ async function fetchCommerces() {
         }
       }
     }
+    populateCommercesSelects();
   } catch (err) {
     console.error("Error fetching commerces/lojas:", err);
+  }
+}
+
+function populateCommercesSelects() {
+  const consumableSelect = document.getElementById('consumable-commerce-select');
+  const creditSelect = document.getElementById('credit-client-select');
+
+  if (consumableSelect) {
+    const currentVal = consumableSelect.value;
+    consumableSelect.innerHTML = '<option value="">Selecione um estabelecimento...</option>';
+    commercesList.forEach(c => {
+      const option = document.createElement('option');
+      option.value = c.id;
+      option.innerText = c.nome;
+      if (c.id === currentVal) {
+        option.selected = true;
+      }
+      consumableSelect.appendChild(option);
+    });
+  }
+
+  if (creditSelect) {
+    const currentVal = creditSelect.value;
+    creditSelect.innerHTML = '<option value="">Selecione um estabelecimento...</option>';
+    commercesList.forEach(c => {
+      const option = document.createElement('option');
+      option.value = c.nome;
+      option.innerText = c.nome;
+      if (c.nome === currentVal) {
+        option.selected = true;
+      }
+      creditSelect.appendChild(option);
+    });
   }
 }
 
@@ -125,6 +161,7 @@ let clientFleetInfoWindow = null;
 let clientFleetMarkers = {};
 let clientCentralMarker = null;
 let clientRatings = [];
+const activeBatteryAlerts = new Set();
 
 // Async functions to sync with Supabase
 async function fetchFleet() {
@@ -135,6 +172,18 @@ async function fetchFleet() {
       .select('*')
       .order('id', { ascending: true });
     if (error) throw error;
+
+    // Sincroniza silenciosamente o cache de alertas de bateria ativos
+    data.forEach(item => {
+      const batVal = item.battery_level != null ? item.battery_level : (parseInt(item.battery) || 100);
+      const riderId = String(item.id);
+      if (batVal < 20) {
+        activeBatteryAlerts.add(riderId);
+      } else {
+        activeBatteryAlerts.delete(riderId);
+      }
+    });
+
     mockData.fleet = data.map(item => ({
       id: String(item.id),
       name: item.name,
@@ -191,44 +240,31 @@ function getFixedPriceFormatted(address) {
 async function fetchClientHistory() {
   await fetchCommerces();
   const currentCreds = mockData.credentials[mockData.activeProfile];
-  const currentCommerce = currentCreds ? currentCreds.commerceName : 'Parceiro Garra';
+  const currentCommerce = currentCreds?.commerceName || '';
+  const isOwner = mockData.activeProfile === 'owner';
 
   if (!supabaseClient) return;
 
   try {
-    const [pendingRes, historyRes] = await Promise.all([
-      supabaseClient
-        .from('pending_deliveries')
-        .select('*')
-        .eq('client', currentCommerce),
-      supabaseClient
-        .from('client_history')
-        .select('*')
-        .eq('client', currentCommerce)
-    ]);
+    // O dono não possui commerceName: filtrar por "Parceiro Garra" fazia a
+    // consulta administrativa voltar vazia. Clientes continuam isolados pela
+    // sua loja; o painel do dono lê apenas a página solicitada do histórico.
+    let historyQuery = supabaseClient
+      .from('client_history')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(clientHistoryLimit);
 
-    if (pendingRes.error) throw pendingRes.error;
+    if (!isOwner && currentCommerce) {
+      historyQuery = historyQuery.eq('client', currentCommerce);
+    }
+
+    const historyRes = await historyQuery;
     if (historyRes.error) throw historyRes.error;
 
-    // 1. Process pending items
-    const pendingItems = pendingRes.data.map(item => ({
-      id: escapeHtml(String(item.id)),
-      client: escapeHtml(item.client || 'Parceiro Garra'),
-      destName: escapeHtml(item.dest_name || 'Cliente'),
-      address: escapeHtml(item.address),
-      rider: escapeHtml(item.rider || 'Aguardando Despacho'),
-      dist: escapeHtml(item.dist || '—'),
-      price: formatMoneyBR(getFixedPriceByAddress(item.address)),
-      date: 'Hoje, Agora',
-      status: 'Aguardando Despacho',
-      statusClass: 'status-warning',
-      payment_status: 'Pendente',
-      created_at: item.created_at,
-      total_order_amount: item.total_order_amount || null
-    }));
-
-    // 2. Process history items
-    const historyItems = historyRes.data.map(item => ({
+    // Entregas pendentes pertencem somente a mockData.pendingDeliveries. Não
+    // misturá-las no histórico evita duplicação visual e contadores inflados.
+    mockData.clientHistory = (historyRes.data || []).map(item => ({
       id: escapeHtml(String(item.id)),
       client: escapeHtml(item.client || 'Parceiro Garra'),
       destName: escapeHtml(item.dest_name || 'Cliente'),
@@ -244,15 +280,23 @@ async function fetchClientHistory() {
       total_order_amount: item.total_order_amount || null
     }));
 
-    // Merge and sort descending by created_at or id
-    mockData.clientHistory = [...pendingItems, ...historyItems].sort((a, b) => {
-      return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-    });
-
   } catch (err) {
     console.error("Error fetching client history from Supabase:", err);
   }
 }
+
+window.loadMoreClientHistory = async function() {
+  const btn = document.querySelector('button[onclick="window.loadMoreClientHistory()"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i data-lucide="loader" class="animate-spin" style="width: 14px; height: 14px;"></i> Carregando...';
+    if (window.lucide) lucide.createIcons();
+  }
+
+  clientHistoryLimit += 50;
+  await fetchClientHistory();
+  renderTelesUnified();
+};
 
 function parseLocalDate(dateStr) {
   if (!dateStr) return null;
@@ -431,12 +475,21 @@ window.generateRiderExtract = generateRiderExtract;
 async function fetchPendingDeliveries() {
   if (!supabaseClient) return;
   try {
-    const { data, error } = await supabaseClient
+    const currentCreds = mockData.credentials[mockData.activeProfile];
+    const currentCommerce = currentCreds?.commerceName || '';
+    const isOwner = mockData.activeProfile === 'owner';
+    let query = supabaseClient
       .from('pending_deliveries')
       .select('*')
       .order('id', { ascending: true });
+
+    if (!isOwner && currentCommerce) {
+      query = query.eq('client', currentCommerce);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
-    mockData.pendingDeliveries = data.map(item => ({
+    mockData.pendingDeliveries = (data || []).map(item => ({
       id: escapeHtml(String(item.id)),
       client: escapeHtml(item.client),
       destName: escapeHtml(item.dest_name),
@@ -475,7 +528,9 @@ async function fetchRiderConsumables() {
       valor_unitario: parseFloat(item.valor_unitario || 0),
       amount: parseFloat(item.amount),
       observacao: escapeHtml(item.observacao || ''),
-      created_at: item.created_at
+      created_at: item.created_at,
+      data_competencia: item.data_competencia,
+      loja_id: item.loja_id
     }));
   } catch (err) {
     console.error("Error fetching rider consumables from Supabase:", err);
@@ -496,7 +551,8 @@ async function fetchRiderCredits() {
       amount: parseFloat(item.amount),
       description: escapeHtml(item.description),
       target_date: item.target_date,
-      created_at: item.created_at
+      created_at: item.created_at,
+      client_name: escapeHtml(item.client_name || '')
     }));
   } catch (err) {
     console.error("Error fetching rider credits from Supabase:", err);
@@ -557,6 +613,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Initialize lucide icons
   lucide.createIcons();
+
+  // Extracts Sidebar Dropdown Toggle
+  const extractsToggle = document.getElementById('sidebar-extracts-toggle');
+  const extractsDropdown = document.getElementById('sidebar-extracts');
+  if (extractsToggle && extractsDropdown) {
+    extractsToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = extractsDropdown.classList.contains('open');
+      extractsDropdown.classList.toggle('open');
+      extractsToggle.setAttribute('aria-expanded', !isOpen);
+    });
+  }
 
   // Eye toggle listener for password visibility
   const passwordToggleBtn = document.getElementById('toggle-password');
@@ -922,6 +990,20 @@ async function switchDashboardTab(targetTab) {
     navItem.classList.add('active');
   }
 
+  document.querySelectorAll('.sidebar-submenu-item').forEach(item => {
+    item.classList.remove('active');
+  });
+  const submenuItem = document.querySelector(`.sidebar-submenu-item[data-tab="${targetTab}"]`);
+  if (submenuItem) {
+    submenuItem.classList.add('active');
+    const dropdown = submenuItem.closest('.sidebar-dropdown');
+    if (dropdown) {
+      dropdown.classList.add('open');
+      const toggle = dropdown.querySelector('.sidebar-dropdown-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    }
+  }
+
   // Update Main Dashboard Views
   document.querySelectorAll('.dashboard-tab-content').forEach(view => {
     view.classList.remove('active');
@@ -971,6 +1053,7 @@ async function switchDashboardTab(targetTab) {
   } else if (targetTab === 'owner-consumables') {
     await fetchFleet();
     await fetchRiderConsumables();
+    await fetchCommerces();
     initConsumableDates();
     populateConsumableRiderSelect();
     populateConsumableRiderSearchDropdown();
@@ -978,6 +1061,7 @@ async function switchDashboardTab(targetTab) {
   } else if (targetTab === 'owner-credits') {
     await fetchFleet();
     await fetchRiderCredits();
+    await fetchCommerces();
     initCreditDates();
     populateCreditRiderSelect();
     populateCreditRiderSearchDropdown();
@@ -1524,7 +1608,7 @@ function renderRiderPayments() {
   // Sum consumables in the selected range for each rider
   const filteredConsumables = (mockData.riderConsumables || []).filter(item => {
     if (start || end) {
-      const itemDate = new Date(item.created_at);
+      const itemDate = item.data_competencia ? parseLocalDate(item.data_competencia) : new Date(item.created_at);
       if (start && itemDate < start) return false;
       if (end && itemDate > end) return false;
     }
@@ -3426,6 +3510,18 @@ function renderTelesGrid(list) {
   });
 
   html += `</div>`;
+
+  const hasMore = mockData.clientHistory.length >= clientHistoryLimit;
+  if (hasMore) {
+    html += `
+      <div style="text-align: center; margin-top: 20px; padding-bottom: 20px;">
+        <button class="btn btn-secondary btn-sm" onclick="window.loadMoreClientHistory()" style="padding: 8px 16px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; background: var(--secondary); border: 1px solid var(--border-color); color: var(--color-text); border-radius: var(--border-radius-sm);">
+          <i data-lucide="arrow-down" style="width: 14px; height: 14px;"></i> Carregar mais (Exibindo ${mockData.clientHistory.length})
+        </button>
+      </div>
+    `;
+  }
+
   container.innerHTML = html;
   lucide.createIcons();
 }
@@ -3447,7 +3543,7 @@ function renderTelesTable(list) {
   const onlineRiders = mockData.fleet.filter(r => r.status !== 'Em Descanso');
 
   let html = `
-    <div class="table-responsive">
+    <div class="table-responsive teles-table-container">
       <table class="compact-table">
         <thead>
           <tr>
@@ -3563,6 +3659,18 @@ function renderTelesTable(list) {
       </table>
     </div>
   `;
+
+  const hasMore = mockData.clientHistory.length >= clientHistoryLimit;
+  if (hasMore) {
+    html += `
+      <div style="text-align: center; margin-top: 16px; padding-bottom: 16px;">
+        <button class="btn btn-secondary btn-sm" onclick="window.loadMoreClientHistory()" style="padding: 8px 16px; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; background: var(--secondary); border: 1px solid var(--border-color); color: var(--color-text); border-radius: var(--border-radius-sm);">
+          <i data-lucide="arrow-down" style="width: 14px; height: 14px;"></i> Carregar mais (Exibindo ${mockData.clientHistory.length})
+        </button>
+      </div>
+    `;
+  }
+
   container.innerHTML = html;
   lucide.createIcons();
 }
@@ -5754,7 +5862,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'fleet'
       }, async (payload) => {
-        console.log('Realtime fleet update:', payload);
+        // console.log('Realtime fleet update:', payload);
         await fetchFleet();
         renderFleetTable();
         if (ownerFleetMap) {
@@ -5764,10 +5872,15 @@ function subscribeDashboardRealtime() {
         updateOwnerDashboardOverview();
 
         if (payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') {
+          const riderId = String(payload.new.id);
           const newBat = parseInt(payload.new.battery_level != null ? payload.new.battery_level : payload.new.battery) || 100;
-          const oldBat = parseInt(payload.old?.battery_level != null ? payload.old.battery_level : payload.old?.battery) || 100;
-          if (newBat < 20 && oldBat >= 20) {
-            addBellNotification(`<strong>${escapeHtml(payload.new.name)}</strong> está com bateria abaixo de 20% (${newBat}%)`, 'alert');
+          if (newBat < 20) {
+            if (!activeBatteryAlerts.has(riderId)) {
+              activeBatteryAlerts.add(riderId);
+              addBellNotification(`<strong>${escapeHtml(payload.new.name)}</strong> está com bateria abaixo de 20% (${newBat}%)`, 'alert');
+            }
+          } else {
+            activeBatteryAlerts.delete(riderId);
           }
         }
       })
@@ -5776,7 +5889,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'pending_deliveries'
       }, async (payload) => {
-        console.log('Realtime pending deliveries update:', payload);
+        // console.log('Realtime pending deliveries update:', payload);
         await fetchPendingDeliveries();
         renderTelesUnified();
         if (ownerFleetMap) {
@@ -5821,7 +5934,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'client_history'
       }, async (payload) => {
-        console.log('Realtime client history update:', payload);
+        // console.log('Realtime client history update:', payload);
         await fetchClientHistory();
         renderTelesUnified();
         renderClientHistoryTable();
@@ -5839,7 +5952,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'rider_consumables'
       }, async (payload) => {
-        console.log('Realtime rider consumables update:', payload);
+        // console.log('Realtime rider consumables update:', payload);
         await fetchRiderConsumables();
         renderRiderConsumables();
         renderRiderPayments();
@@ -5849,7 +5962,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'cidades'
       }, async (payload) => {
-        console.log('Realtime cities update:', payload);
+        // console.log('Realtime cities update:', payload);
         await fetchCities();
         renderCitiesTable();
       });
@@ -5860,7 +5973,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'fleet'
       }, async (payload) => {
-        console.log('Realtime client fleet update:', payload);
+        // console.log('Realtime client fleet update:', payload);
         await fetchFleet();
         if (clientFleetMap) {
           renderClientMapMarkers(clientFleetCenterCoords);
@@ -5871,7 +5984,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'client_history'
       }, async (payload) => {
-        console.log('Realtime client history update:', payload);
+        // console.log('Realtime client history update:', payload);
         const commerceName = creds ? creds.commerceName : null;
         await fetchClientHistory();
         renderClientTelesUnified();
@@ -5893,7 +6006,7 @@ function subscribeDashboardRealtime() {
         schema: 'public',
         table: 'pending_deliveries'
       }, async (payload) => {
-        console.log('Realtime client pending update:', payload);
+        // console.log('Realtime client pending update:', payload);
         const commerceName = creds ? creds.commerceName : null;
         await fetchPendingDeliveries();
         renderClientTelesUnified();
@@ -7106,9 +7219,18 @@ function renderRiderConsumables() {
   const filtered = (mockData.riderConsumables || []).filter(item => {
     // Filter by date
     if (start || end) {
-      const itemDate = new Date(item.created_at);
-      if (start && itemDate < start) return false;
-      if (end && itemDate > end) return false;
+      let itemDate = null;
+      if (item.data_competencia) {
+        itemDate = parseLocalDate(item.data_competencia);
+      } else if (item.created_at) {
+        itemDate = new Date(item.created_at);
+      }
+      
+      if (itemDate) {
+        itemDate.setHours(12, 0, 0, 0); // avoid timezone shifts
+        if (start && itemDate < start) return false;
+        if (end && itemDate > end) return false;
+      }
     }
     // Filter by rider name
     if (searchVal && !item.rider_name.toLowerCase().includes(searchVal)) {
@@ -7129,13 +7251,19 @@ function renderRiderConsumables() {
       itemsTotal += item.amount;
     }
 
-    const date = new Date(item.created_at);
-    const dateFmt = date.toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    let dateFmt = 'Data desconhecida';
+    if (item.data_competencia) {
+      const [y, m, d] = item.data_competencia.split('-');
+      dateFmt = `${d}/${m}/${y}`;
+    } else if (item.created_at) {
+      const date = new Date(item.created_at);
+      dateFmt = date.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
 
     const categoryBadge = item.categoria === 'Vale' 
       ? '<span class="badge badge-warning" style="background: rgba(255, 183, 0, 0.15); color: #ffb700; border: 1px solid rgba(255, 183, 0, 0.3); font-size: 0.72rem; padding: 4px 8px; border-radius: 4px;">Vale</span>' 
@@ -7196,6 +7324,7 @@ function renderRiderConsumables() {
 function initConsumableDates() {
   const startEl = document.getElementById('consumable-start-date');
   const endEl = document.getElementById('consumable-end-date');
+  const competenceEl = document.getElementById('consumable-competence-date');
   if (startEl && !startEl.value) {
     const { monday } = getCurrentWeekBounds();
     startEl.value = formatDateISO(monday);
@@ -7203,6 +7332,9 @@ function initConsumableDates() {
   if (endEl && !endEl.value) {
     const { sunday } = getCurrentWeekBounds();
     endEl.value = formatDateISO(sunday);
+  }
+  if (competenceEl && !competenceEl.value) {
+    competenceEl.value = formatDateISO(new Date());
   }
 }
 
@@ -7296,6 +7428,7 @@ async function handleRegisterConsumable(event) {
   if (!supabaseClient) return;
 
   const selectRider = document.getElementById('consumable-rider-select');
+  const selectCommerce = document.getElementById('consumable-commerce-select');
   const selectCategory = document.getElementById('consumable-category-select');
   const selectType = document.getElementById('consumable-type-select');
   const customType = document.getElementById('consumable-custom-type');
@@ -7303,8 +7436,11 @@ async function handleRegisterConsumable(event) {
   const inputUnitPrice = document.getElementById('consumable-unit-price');
   const inputAmount = document.getElementById('consumable-amount');
   const textareaNotes = document.getElementById('consumable-notes');
+  const inputCompetenceDate = document.getElementById('consumable-competence-date');
 
-  if (!selectRider || !selectCategory || !selectType || !customType || !inputQuantity || !inputUnitPrice || !inputAmount) return;
+  if (!selectRider || !selectCommerce || !selectCategory || !selectType || !customType || !inputQuantity || !inputUnitPrice || !inputAmount) return;
+  const competenceDate = inputCompetenceDate ? inputCompetenceDate.value : '';
+  const lojaId = selectCommerce.value;
 
   const riderOption = selectRider.options[selectRider.selectedIndex];
   const riderId = selectRider.value;
@@ -7340,7 +7476,9 @@ async function handleRegisterConsumable(event) {
         quantidade: quantidade,
         valor_unitario: valorUnitario,
         amount: amount,
-        observacao: observacao
+        observacao: observacao,
+        data_competencia: competenceDate || null,
+        loja_id: lojaId || null
       }]);
 
     if (error) throw error;
@@ -7349,6 +7487,9 @@ async function handleRegisterConsumable(event) {
     selectCategory.value = 'Consumível';
     handleConsumableCategoryChange();
     if (textareaNotes) textareaNotes.value = '';
+    if (inputCompetenceDate) {
+      inputCompetenceDate.value = formatDateISO(new Date());
+    }
     
     showToastNotification('Consumo registrado com sucesso.');
     
@@ -7587,13 +7728,15 @@ async function handleRegisterCredit(event) {
   if (!supabaseClient) return;
 
   const selectRider = document.getElementById('credit-rider-select');
+  const selectClient = document.getElementById('credit-client-select');
   const inputAmount = document.getElementById('credit-input-amount');
   const inputDate = document.getElementById('credit-input-date');
   const textareaDesc = document.getElementById('credit-input-description');
 
-  if (!selectRider || !inputAmount || !inputDate || !textareaDesc) return;
+  if (!selectRider || !selectClient || !inputAmount || !inputDate || !textareaDesc) return;
 
   const riderId = selectRider.value;
+  const clientName = selectClient.value;
   const amount = parseFloat(inputAmount.value) || 0;
   const targetDate = inputDate.value;
   const description = textareaDesc.value.trim();
@@ -7613,7 +7756,8 @@ async function handleRegisterCredit(event) {
         rider_id: riderId,
         amount: amount,
         target_date: targetDate,
-        description: description
+        description: description,
+        client_name: clientName || null
       }]);
 
     if (error) throw error;

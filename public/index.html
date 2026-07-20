@@ -15,7 +15,7 @@
   <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
   <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=20260709_v1">
+  <link rel="stylesheet" href="style.css?v=20260713_v1">
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- Lucide Icons -->
@@ -180,9 +180,20 @@
             <button class="nav-item" data-tab="owner-rider-payments" onclick="switchDashboardTab('owner-rider-payments')">
               <i data-lucide="receipt"></i> Repasse Semanal
             </button>
-            <button class="nav-item" data-tab="owner-rider-extract" onclick="switchDashboardTab('owner-rider-extract')">
-              <i data-lucide="file-text"></i> Extrato dos Profissionais
-            </button>
+            <div class="sidebar-dropdown" id="sidebar-extracts">
+              <button type="button" class="nav-item sidebar-dropdown-toggle" id="sidebar-extracts-toggle" aria-expanded="false" aria-controls="sidebar-extracts-menu">
+                <i data-lucide="files"></i> Extratos
+                <i data-lucide="chevron-down" class="sidebar-dropdown-chevron" aria-hidden="true"></i>
+              </button>
+              <div class="sidebar-dropdown-menu" id="sidebar-extracts-menu">
+                <button class="sidebar-submenu-item" data-tab="owner-rider-extract" onclick="switchDashboardTab('owner-rider-extract')">
+                  <i data-lucide="bike"></i> Motoboys
+                </button>
+                <button class="sidebar-submenu-item" data-tab="owner-client-extract" onclick="switchDashboardTab('owner-client-extract')">
+                  <i data-lucide="store"></i> Clientes
+                </button>
+              </div>
+            </div>
             <button class="nav-item" data-tab="owner-consumables" onclick="switchDashboardTab('owner-consumables')">
               <i data-lucide="shopping-bag"></i> Consumíveis
             </button>
@@ -364,7 +375,7 @@
               <div class="card">
                 <div class="card-header flex-row" style="justify-content: space-between; align-items: center;">
                   <h3>Clientes Comerciais</h3>
-                  <button class="btn btn-secondary btn-sm" onclick="openAddCommerceModal()" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; height: 30px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; background-color: var(--secondary); border: 1px solid var(--border-color); color: var(--color-text); border-radius: var(--border-radius-sm);"><i data-lucide="plus" style="width: 14px; height: 14px;"></i> Novo</button>
+                  <button class="btn btn-secondary btn-sm" onclick="openRegisterCommerce()" style="padding: 6px 12px; font-size: 0.78rem; font-weight: 700; height: 30px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; background-color: var(--secondary); border: 1px solid var(--border-color); color: var(--color-text); border-radius: var(--border-radius-sm);"><i data-lucide="plus" style="width: 14px; height: 14px;"></i> Novo</button>
                 </div>
                 <div class="card-body">
                   <div class="list-container" id="owner-top-clients-list">
@@ -459,6 +470,9 @@
               </button>
               <button id="filter-canceled" class="filter-pill" onclick="setTeleFilter('canceled')">
                 Canceladas <span class="badge badge-sm bg-danger-glow text-danger" id="count-canceled">0</span>
+              </button>
+              <button id="refresh-teles-list" class="filter-pill" onclick="refreshTelesManagement()" title="Atualizar lista de teles" aria-label="Atualizar lista de teles" style="width: 42px; min-width: 42px; padding: 0; display: inline-flex; align-items: center; justify-content: center;" type="button">
+                <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
               </button>
             </div>
 
@@ -758,7 +772,7 @@
                     <table class="table">
                       <thead>
                         <tr>
-                          <th>Data / Hora</th>
+                          <th>Competência</th>
                           <th>Motoboy</th>
                           <th>Categoria</th>
                           <th>Item</th>
@@ -790,6 +804,18 @@
                         <option value="">Selecione um motoboy...</option>
                         <!-- Populated by JS -->
                       </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 16px;">
+                      <label for="consumable-commerce-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Estabelecimento de origem</label>
+                      <select id="consumable-commerce-select" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                        <option value="">Selecione um estabelecimento...</option>
+                      </select>
+                    </div>
+
+                    <div class="form-group" style="margin-bottom: 16px;">
+                      <label for="consumable-competence-date" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Data de competência</label>
+                      <input type="date" id="consumable-competence-date" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
                     </div>
 
                     <div class="form-group" style="margin-bottom: 16px;">
@@ -877,6 +903,13 @@
                   </div>
                 </div>
 
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label for="credit-client-filter" style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Filtrar por Estabelecimento</label>
+                  <select id="credit-client-filter" onchange="renderRiderCredits()" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 220px;">
+                    <option value="">Todos os estabelecimentos</option>
+                  </select>
+                </div>
+
                 <div style="display: flex; gap: 8px;">
                   <button class="btn btn-primary" onclick="renderRiderCredits()" style="display: flex; align-items: center; gap: 8px; padding: 11px 16px; font-weight: 600; cursor: pointer;">
                     <i data-lucide="filter" style="width: 16px; height: 16px;"></i> <span>Filtrar</span>
@@ -894,10 +927,10 @@
               <h2 id="credits-period-total" style="margin: 8px 0 0 0; color: var(--primary); font-size: 1.8rem; font-weight: 700;">R$ 0,00</h2>
             </div>
 
-            <!-- Two Column Layout -->
-            <div class="dashboard-grid-two-columns">
-              <!-- Left: List of Registered Credits -->
-              <div class="card">
+            <!-- Registration stays directly below the filters; history follows it. -->
+            <div class="dashboard-grid-two-columns" style="display: flex; flex-direction: column; gap: 20px;">
+              <!-- Histórico de Créditos / Ajustes -->
+              <div class="card credit-history-card">
                 <div class="card-header">
                   <h3>Histórico de Créditos / Ajustes</h3>
                   <p class="text-muted">Todos os lançamentos de créditos e ajustes adicionais.</p>
@@ -923,8 +956,8 @@
                 </div>
               </div>
 
-              <!-- Right: Form to Register Credit -->
-              <div class="card">
+              <!-- Lançar Crédito Adicional -->
+              <div class="card credit-register-card" style="order: -1;">
                 <div class="card-header">
                   <h3>Lançar Crédito Adicional</h3>
                   <p class="text-muted">Adicione bônus, diárias ou premiações para somar ao saldo do repasse.</p>
@@ -937,6 +970,13 @@
                         <select id="credit-rider-select" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
                           <option value="">Selecione um motoboy...</option>
                           <!-- Populated by JS -->
+                        </select>
+                      </div>
+
+                      <div class="form-group">
+                        <label for="credit-client-select" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Estabelecimento de origem</label>
+                        <select id="credit-client-select" required style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                          <option value="">Selecione um estabelecimento...</option>
                         </select>
                       </div>
 
@@ -1042,6 +1082,81 @@
                     <tbody id="extract-details-table-body">
                       <!-- Rendered dynamically -->
                     </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 8d. Owner Client Extract -->
+          <div id="tab-owner-client-extract" class="dashboard-tab-content">
+            <div class="card" style="margin-bottom: 20px;">
+              <div class="card-header">
+                <h3>Extrato de Clientes</h3>
+                <p class="text-muted">Consulte o faturamento bruto das teles concluídas por estabelecimento e competência.</p>
+              </div>
+              <div class="card-body" style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; padding: 16px;">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label for="client-extract-start-date" style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Data Inicial</label>
+                  <input type="date" id="client-extract-start-date" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 160px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <label for="client-extract-end-date" style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Data Final</label>
+                  <input type="date" id="client-extract-end-date" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; min-width: 160px;">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px; min-width: 220px; flex: 1;">
+                  <label for="client-extract-client-filter" style="font-size: 0.82rem; color: var(--color-text-muted); font-weight: 500;">Estabelecimento</label>
+                  <select id="client-extract-client-filter" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%; cursor: pointer;">
+                    <option value="">Todos os estabelecimentos</option>
+                  </select>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="searchClientExtract()" style="padding: 10px 20px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                  Buscar Extrato <i data-lucide="search"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="card" id="client-extract-results-card" style="display: none;">
+              <div class="card-header">
+                <h3 id="client-extract-title">Faturamento Bruto</h3>
+                <p class="text-muted" id="client-extract-period">Período selecionado: —</p>
+              </div>
+              <div class="card-body">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+                  <div class="metric-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Teles concluídas</span>
+                    <h2 id="client-extract-total-services" style="margin: 8px 0 0; color: #fff; font-weight: 700; font-size: 1.8rem;">0</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Total bruto a repassar</span>
+                    <h2 id="client-extract-total-gross" style="margin: 8px 0 0; color: var(--primary); font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.28); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Créditos brutos lançados</span>
+                    <h2 id="client-extract-total-credits" style="margin: 8px 0 0; color: #10b981; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.28); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Consumíveis / vales deduzidos</span>
+                    <h2 id="client-extract-total-consumables" style="margin: 8px 0 0; color: #ef4444; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.28); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Valor líquido a pagar</span>
+                    <h2 id="client-extract-total-net" style="margin: 8px 0 0; color: #10b981; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                </div>
+                <div class="table-responsive">
+                  <table class="table">
+                    <thead>
+                      <tr>
+                        <th>Código</th>
+                        <th>Estabelecimento</th>
+                        <th>Destinatário</th>
+                        <th>Valor Bruto</th>
+                        <th>Data / Hora</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody id="client-extract-table-body"></tbody>
                   </table>
                 </div>
               </div>
@@ -1716,6 +1831,12 @@
 
           <!-- 9. Admin Settings Tab -->
           <div id="tab-owner-settings" class="dashboard-tab-content">
+            <div class="card" style="margin-bottom: 16px;">
+              <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap;">
+                <div><strong>Clientes Comerciais</strong><p class="text-muted" style="margin:4px 0 0;">Cadastre uma nova loja e atualize os seletores operacionais.</p></div>
+                <button type="button" id="register-commerce-button" class="btn btn-primary">Cadastrar cliente comercial</button>
+              </div>
+            </div>
             <div class="card">
               <div class="card-header flex-row">
                 <div>
@@ -2201,7 +2322,7 @@
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="form-group">
               <label for="manual-delivery-client" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Estabelecimento (Cliente)</label>
-              <input type="text" id="manual-delivery-client" required value="Parceiro Garra" placeholder="Ex: Lancheria Garra" style="padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+              <select id="manual-delivery-client" class="form-select" required style="width: 100%; height: 38px; background: var(--bg-input); border: 1px solid var(--border-color); color: var(--color-text); border-radius: 6px; padding: 0 10px; outline: none;"></select>
             </div>
             <div class="form-group">
               <label for="manual-delivery-dest-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Destinatário</label>
@@ -2288,14 +2409,30 @@
   <div id="modal-add-commerce" class="modal-overlay hidden" onclick="closeAddCommerceModal(event)">
     <div class="modal-card" style="max-width: 400px;" onclick="event.stopPropagation()">
       <div class="modal-header">
-        <h3><i data-lucide="plus-circle" class="inline-icon text-yellow"></i> Novo Comércio</h3>
+        <h3><i data-lucide="plus-circle" class="inline-icon text-yellow"></i> Cadastrar Cliente Comercial</h3>
         <button class="modal-close-btn" onclick="closeAddCommerceModal()"><i data-lucide="x"></i></button>
       </div>
-      <form onsubmit="submitAddCommerce(event)">
+      <form onsubmit="submitRegisterCommerce(event)">
         <div class="modal-body" style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
           <div class="form-group">
             <label for="add-commerce-name" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Nome do Comércio</label>
             <input type="text" id="add-commerce-name" required placeholder="Ex: Burguer do Chef" style="padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+          <div class="form-group">
+            <label for="add-commerce-phone" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Telefone</label>
+            <input type="tel" id="add-commerce-phone" placeholder="(51) 99999-9999" style="padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+          <div class="form-group">
+            <label for="add-commerce-city" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Cidade</label>
+            <input type="text" id="add-commerce-city" placeholder="Ex: Sapucaia do Sul" style="padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+          <div class="form-group">
+            <label for="commerce-email" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">E-mail de Acesso</label>
+            <input type="email" id="commerce-email" autocomplete="email" required placeholder="contato@estabelecimento.com" style="padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
+          </div>
+          <div class="form-group">
+            <label for="commerce-password" style="display: block; margin-bottom: 6px; font-weight: 500; font-size: 0.85rem;">Senha de Acesso</label>
+            <input type="password" id="commerce-password" autocomplete="new-password" required minlength="8" placeholder="Digite a senha do cliente" style="padding: 10px 12px; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--border-radius-sm); color: var(--color-text); font-size: 0.85rem; outline: none; width: 100%;">
           </div>
         </div>
         <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border-color);">
@@ -2352,6 +2489,6 @@
   </button>
 
   <script src="config.js"></script>
-  <script src="app.js?v=20260709_v3"></script>
+  <script src="app.js?v=20260717_v6"></script>
 </body>
 </html>

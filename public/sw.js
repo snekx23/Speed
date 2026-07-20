@@ -1,5 +1,5 @@
 // Garra Delivery - Service Worker Otimizado
-const CACHE_NAME = 'garra-delivery-cache-v1';
+const CACHE_NAME = 'garra-delivery-cache-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -90,4 +90,31 @@ self.addEventListener('message', (event) => {
   if (event.data === 'skip-waiting') {
     self.skipWaiting();
   }
+});
+
+// Push e recebido pelo sistema mesmo sem uma aba aberta. O som e controlado
+// pelo Android/iOS conforme o volume do aparelho, nao pelo JavaScript.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (_) {}
+  const title = data.title || 'Nova tele atribuida';
+  const options = {
+    body: data.body || 'Abra o Garra Delivery para ver os detalhes.',
+    icon: '/logo.png',
+    badge: '/logo.png',
+    tag: data.tag || 'garra-delivery-new-tele',
+    renotify: true,
+    vibrate: [250, 120, 250, 120, 250],
+    data: { url: data.url || '/motoboy' },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/motoboy';
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windows) => {
+    const existing = windows.find((client) => new URL(client.url).pathname.startsWith('/motoboy'));
+    return existing ? existing.focus() : clients.openWindow(targetUrl);
+  }));
 });

@@ -15,6 +15,7 @@ export default {
       key: "${env.SUPABASE_ANON_KEY || 'sb_publishable_UFy_HB0JaKUVCvHUlHSQ0Q_2HFOk4_V'}"
     };
     window.MAPBOX_ACCESS_TOKEN = "${env.MAPBOX_ACCESS_TOKEN || ''}";
+    window.PUSH_VAPID_PUBLIC_KEY = "${env.PUSH_VAPID_PUBLIC_KEY || ''}";
   </script>
 `;
       html = html.replace('<head>', '<head>' + configScript);
