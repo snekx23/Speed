@@ -9,6 +9,9 @@
   --bg-card: #181820;
   --bg-card-hover: #1f1f29;
   --bg-input: #1a1a24;
+  /* Aliases de compatibilidade para estilos inline legados do painel. */
+  --card-bg: var(--bg-card);
+  --input-bg: var(--bg-input);
   --bg-sidebar: #0f0f13;
   --bg-topbar: #0d0d11;
 
@@ -50,6 +53,17 @@
 }
 
 /* Seletores nativos: evita texto claro sobre o menu claro padrão do navegador. */
+select {
+  background-color: var(--bg-input);
+  color: var(--color-text);
+}
+
+select:focus {
+  border-color: var(--border-color-focus);
+  outline: 2px solid var(--primary-glow);
+  outline-offset: 1px;
+}
+
 select option {
   background-color: #1e1e24 !important;
   color: #ffffff !important;

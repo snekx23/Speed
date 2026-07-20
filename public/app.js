@@ -131,6 +131,38 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+// Chave somente para associaÃ§Ã£o de dados legados. Nunca usar esta funÃ§Ã£o para
+// renderizar HTML: a exibiÃ§Ã£o continua passando por escapeHtml no fim do fluxo.
+function normalizeRiderName(value) {
+  const decoded = String(value ?? '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&#x27;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
+
+  return decoded
+    .trim()
+    .replace(/\s+/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR');
+}
+
+function resolveFinancialRider(riderId, riderName) {
+  const rawId = riderId === null || riderId === undefined ? '' : String(riderId);
+  if (rawId) {
+    const byId = mockData.fleet.find(rider => String(rider.id) === rawId);
+    if (byId) return byId;
+  }
+
+  const normalizedName = normalizeRiderName(riderName);
+  if (!normalizedName) return null;
+  const matches = mockData.fleet.filter(rider => normalizeRiderName(rider.name) === normalizedName);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 // Global Chart and Map variables to allow proper reset/destroy
 let ownerFleetMap = null;
 let ownerFleetInfoWindow = null;
@@ -269,7 +301,8 @@ async function fetchClientHistory() {
       client: escapeHtml(item.client || 'Parceiro Garra'),
       destName: escapeHtml(item.dest_name || 'Cliente'),
       address: escapeHtml(item.address),
-      rider: escapeHtml(item.rider || 'Sem entregador'),
+      // Mantido cru para o agrupamento financeiro; o escape ocorre ao renderizar.
+      rider: item.rider || 'Sem entregador',
       dist: escapeHtml(item.dist ? item.dist.split('|')[0] : '—'),
       price: formatMoneyBR(getFixedPriceByAddress(item.address)),
       date: escapeHtml(item.date),
@@ -520,14 +553,16 @@ async function fetchRiderConsumables() {
     if (error) throw error;
     mockData.riderConsumables = data.map(item => ({
       id: item.id,
-      rider_id: escapeHtml(String(item.rider_id)),
-      rider_name: escapeHtml(item.rider_name),
+      // IDs e nomes permanecem crus para associaÃ§Ã£o financeira; o escape Ã©
+      // aplicado exclusivamente nas funÃ§Ãµes de renderizaÃ§Ã£o.
+      rider_id: String(item.rider_id ?? ''),
+      rider_name: String(item.rider_name ?? ''),
       categoria: escapeHtml(item.categoria || 'Consumível'),
-      item_type: escapeHtml(item.item_type),
+      item_type: item.item_type || '',
       quantidade: parseInt(item.quantidade || 1),
       valor_unitario: parseFloat(item.valor_unitario || 0),
       amount: parseFloat(item.amount),
-      observacao: escapeHtml(item.observacao || ''),
+      observacao: item.observacao || '',
       created_at: item.created_at,
       data_competencia: item.data_competencia,
       loja_id: item.loja_id
@@ -547,12 +582,14 @@ async function fetchRiderCredits() {
     if (error) throw error;
     mockData.riderCredits = data.map(item => ({
       id: item.id,
-      rider_id: escapeHtml(String(item.rider_id)),
+      rider_id: String(item.rider_id ?? ''),
       amount: parseFloat(item.amount),
-      description: escapeHtml(item.description),
+      description: item.description || '',
       target_date: item.target_date,
       created_at: item.created_at,
-      client_name: escapeHtml(item.client_name || '')
+      client_name: item.client_name || '',
+      // Campo opcional para compatibilidade com possÃ­veis lanÃ§amentos legados.
+      rider_name: item.rider_name || ''
     }));
   } catch (err) {
     console.error("Error fetching rider credits from Supabase:", err);
@@ -862,6 +899,7 @@ async function loginSuccess() {
     await fetchFleet();
     await fetchPendingDeliveries();
     await fetchRiderConsumables();
+    await fetchRiderCredits();
     await fetchClientHistory();
 
     // Switch to saved tab or fallback to owner-overview
@@ -1047,6 +1085,8 @@ async function switchDashboardTab(targetTab) {
   } else if (targetTab === 'owner-rider-payments') {
     await fetchFleet();
     await fetchClientHistory();
+    await fetchRiderCredits();
+    await fetchRiderConsumables();
     initRiderPaymentDates();
     renderRiderPayments();
     populateRiderSearchDropdown();
@@ -1540,6 +1580,17 @@ function isOrderInCurrentWeek(order) {
   return orderDate >= monday && orderDate <= sunday;
 }
 
+// Créditos/Ajustes são lançados em valor bruto e também compõem a base da
+// taxa Garra. Consumíveis são abatidos integralmente após a taxa.
+function calculateRiderWeeklyPayment(gross, credits, consumables) {
+  const grossAmount = Number(gross) || 0;
+  const creditsAmount = Number(credits) || 0;
+  const consumablesAmount = Number(consumables) || 0;
+  const garraFee = (grossAmount + creditsAmount) * 0.10;
+  const net = grossAmount + creditsAmount - garraFee - consumablesAmount;
+  return { garraFee, net };
+}
+
 function renderRiderPayments() {
   const tbody = document.getElementById('rider-payments-table-body');
   if (!tbody) return;
@@ -1565,13 +1616,26 @@ function renderRiderPayments() {
     }
   }
 
-  // Initialize map of rider totals
+  // O ID da frota e a chave financeira principal. Nomes sÃ³ entram como
+  // fallback para histÃ³ricos legados, que nÃ£o possuem rider_id.
   const totals = new Map();
-  mockData.fleet.forEach(rider => {
-    if (searchVal && !rider.name.toLowerCase().includes(searchVal)) {
-      return;
+  const addRiderTotal = (rider, fallbackName = '') => {
+    const key = rider ? String(rider.id) : `legacy:${normalizeRiderName(fallbackName) || 'removed'}`;
+    if (!totals.has(key)) {
+      totals.set(key, {
+        rider: rider || { name: fallbackName || 'Motoboy Removido', id: '—' },
+        count: 0,
+        total: 0,
+        payments: [],
+        consumablesTotal: 0,
+        creditsTotal: 0,
+      });
     }
-    totals.set(rider.name, { rider, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
+    return totals.get(key);
+  };
+
+  mockData.fleet.forEach(rider => {
+    if (!searchVal || rider.name.toLowerCase().includes(searchVal)) addRiderTotal(rider);
   });
 
   // Filter and group clientHistory orders in the range
@@ -1595,11 +1659,10 @@ function renderRiderPayments() {
       return true;
     })
     .forEach(order => {
-      if (!totals.has(order.rider)) {
-        if (searchVal && !order.rider.toLowerCase().includes(searchVal)) return;
-        totals.set(order.rider, { rider: { name: order.rider, id: '—' }, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
-      }
-      const item = totals.get(order.rider);
+      const rider = resolveFinancialRider('', order.rider);
+      const riderName = rider ? rider.name : order.rider;
+      if (searchVal && !String(riderName || '').toLowerCase().includes(searchVal)) return;
+      const item = addRiderTotal(rider, riderName);
       item.count += 1;
       item.total += parseMoneyBR(order.price);
       item.payments.push(order);
@@ -1616,12 +1679,10 @@ function renderRiderPayments() {
   });
 
   filteredConsumables.forEach(c => {
-    let item = totals.get(c.rider_name);
-    if (!item) {
-      if (searchVal && !c.rider_name.toLowerCase().includes(searchVal)) return;
-      totals.set(c.rider_name, { rider: { name: c.rider_name, id: c.rider_id }, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
-      item = totals.get(c.rider_name);
-    }
+    const rider = resolveFinancialRider(c.rider_id, c.rider_name);
+    const riderName = rider ? rider.name : c.rider_name;
+    if (searchVal && !String(riderName || '').toLowerCase().includes(searchVal)) return;
+    const item = addRiderTotal(rider, riderName);
     item.consumablesTotal += c.amount;
   });
 
@@ -1636,14 +1697,10 @@ function renderRiderPayments() {
   });
 
   filteredCredits.forEach(c => {
-    const rider = mockData.fleet.find(r => r.id === c.rider_id);
-    const riderName = rider ? rider.name : 'Motoboy Removido';
-    let item = totals.get(riderName);
-    if (!item) {
-      if (searchVal && !riderName.toLowerCase().includes(searchVal)) return;
-      totals.set(riderName, { rider: { name: riderName, id: c.rider_id }, count: 0, total: 0, payments: [], consumablesTotal: 0, creditsTotal: 0 });
-      item = totals.get(riderName);
-    }
+    const rider = resolveFinancialRider(c.rider_id, c.rider_name);
+    const riderName = rider ? rider.name : (c.rider_name || 'Motoboy Removido');
+    if (searchVal && !String(riderName).toLowerCase().includes(searchVal)) return;
+    const item = addRiderTotal(rider, riderName);
     item.creditsTotal += c.amount;
   });
 
@@ -1651,17 +1708,20 @@ function renderRiderPayments() {
   const grandTotalGross = rows.reduce((sum, row) => sum + row.total, 0);
   const grandTotalConsumables = rows.reduce((sum, row) => sum + (row.consumablesTotal || 0), 0);
   const grandTotalCredits = rows.reduce((sum, row) => sum + (row.creditsTotal || 0), 0);
-  const grandTotalNet = grandTotalGross * 0.90 - grandTotalConsumables + grandTotalCredits; // Apply 10% discount, subtract consumables and add credits
+  const grandTotalNet = calculateRiderWeeklyPayment(
+    grandTotalGross,
+    grandTotalCredits,
+    grandTotalConsumables,
+  ).net;
   
   const totalEl = document.getElementById('rider-week-total');
   if (totalEl) totalEl.innerText = formatMoneyBR(grandTotalNet);
 
   tbody.innerHTML = rows.map(row => {
     const gross = row.total;
-    const discount = gross * 0.10;
     const consumables = row.consumablesTotal || 0;
     const credits = row.creditsTotal || 0;
-    const net = gross * 0.90 - consumables + credits;
+    const { garraFee, net } = calculateRiderWeeklyPayment(gross, credits, consumables);
     const avg = row.count ? gross / row.count : 0;
 
     // A rider is considered Paid in this period if they have orders and all of them are marked 'Pago'
@@ -1685,7 +1745,7 @@ function renderRiderPayments() {
         </td>
         <td>${row.count}</td>
         <td>${formatMoneyBR(gross)}</td>
-        <td class="text-danger">- ${formatMoneyBR(discount)}</td>
+        <td class="text-danger">- ${formatMoneyBR(garraFee)}</td>
         <td class="text-danger">- ${formatMoneyBR(consumables)}</td>
         <td style="color: #10b981;">+ ${formatMoneyBR(credits)}</td>
         <td><strong class="text-yellow">${formatMoneyBR(net)}</strong></td>
