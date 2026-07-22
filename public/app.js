@@ -38,57 +38,111 @@ let teleViewMode = 'list';
 let currentClientTeleFilter = 'all';
 let clientTeleViewMode = 'list';
 
+const BORA_ACAI_CANONICAL_ID = '00000000-0000-0000-0000-000000000001';
+
+function normalizeCommerceName(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('pt-BR');
+}
+
+function normalizeCommercesForDisplay(rows) {
+  const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  const boraRows = [];
+  const otherRows = [];
+
+  list.forEach(row => {
+    if (normalizeCommerceName(row.nome) === 'bora acai') {
+      boraRows.push(row);
+    } else {
+      otherRows.push(row);
+    }
+  });
+
+  if (boraRows.length > 0) {
+    const canonical =
+      boraRows.find(row => String(row.id) === BORA_ACAI_CANONICAL_ID) ||
+      boraRows.find(row => Boolean(row.food99_app_shop_id)) ||
+      boraRows[0];
+
+    otherRows.push({
+      ...canonical,
+      id: String(canonical.id),
+      nome: 'Bora Açaí',
+      is_canonical_bora: String(canonical.id) === BORA_ACAI_CANONICAL_ID,
+    });
+
+    if (boraRows.length > 1) {
+      console.warn(
+        '[lojas] Cadastros duplicados do Bora Açaí foram ocultados nos selects. ' +
+        'A mesclagem definitiva ainda deve ser feita no banco.',
+        { quantidade: boraRows.length }
+      );
+    }
+  }
+
+  return otherRows.sort((a, b) =>
+    String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR')
+  );
+}
+
+function ensureCanonicalBoraAcai(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const hasBora = list.some(row => normalizeCommerceName(row?.nome) === 'bora acai');
+  return hasBora
+    ? list
+    : [...list, { id: BORA_ACAI_CANONICAL_ID, nome: 'Bora Açaí', is_canonical_bora: true }];
+}
+
+function is99FoodDeliveryRecord(delivery) {
+  if (!delivery) return false;
+  return [
+    delivery.id,
+    delivery.external_id,
+    delivery.client,
+    delivery.payment,
+  ].some(value => String(value || '').toLowerCase().includes('99food'));
+}
+
+
 async function fetchCommerces() {
   if (!supabaseClient) {
-    commercesList = [
+    commercesList = normalizeCommercesForDisplay([
       { id: '1', nome: 'Lancheria Garra' },
       { id: '2', nome: 'Pizzaria da Nonna' },
       { id: '3', nome: 'Dogão Express' },
-      { id: '4', nome: 'Bora Açaí' }
-    ];
+      { id: BORA_ACAI_CANONICAL_ID, nome: 'Bora Açaí' },
+    ]);
     populateCommercesSelects();
     return;
   }
+
   try {
     const { data, error } = await supabaseClient
       .from('lojas')
       .select('*')
       .order('nome', { ascending: true });
-    if (error) throw error;
-    commercesList = data || [];
 
-    if (commercesList.length === 0) {
-      const defaultNames = ['Lancheria Garra', 'Pizzaria da Nonna', 'Dogão Express', 'Bora Açaí'];
-      const inserts = defaultNames.map(nome => ({ nome }));
-      const { data: inserted, error: insertError } = await supabaseClient
-        .from('lojas')
-        .insert(inserts)
-        .select();
-      if (!insertError && inserted) {
-        commercesList = inserted;
-      }
-    } else {
-      const hasBora = commercesList.some(c => c.nome.toLowerCase() === 'bora açai' || c.nome.toLowerCase() === 'bora açaí');
-      if (!hasBora) {
-        const { data: inserted, error: insertError } = await supabaseClient
-          .from('lojas')
-          .insert([{ nome: 'Bora Açaí' }])
-          .select();
-        if (!insertError && inserted && inserted.length > 0) {
-          commercesList.push(inserted[0]);
-          commercesList.sort((a, b) => a.nome.localeCompare(b.nome));
-        }
-      }
-    }
+    if (error) throw error;
+
+    // O frontend nunca cria lojas automaticamente. Isso evita um segundo
+    // Bora Açaí com UUID aleatório e obriga o uso do fluxo de provisionamento.
+    commercesList = normalizeCommercesForDisplay(ensureCanonicalBoraAcai(data || []));
     populateCommercesSelects();
   } catch (err) {
-    console.error("Error fetching commerces/lojas:", err);
+    console.error('Error fetching commerces/lojas:', err);
+    commercesList = normalizeCommercesForDisplay(ensureCanonicalBoraAcai([]));
+    populateCommercesSelects();
   }
 }
 
 function populateCommercesSelects() {
   const consumableSelect = document.getElementById('consumable-commerce-select');
   const creditSelect = document.getElementById('credit-client-select');
+  const clientExtractSelect = document.getElementById('client-extract-client-filter');
 
   if (consumableSelect) {
     const currentVal = consumableSelect.value;
@@ -115,6 +169,18 @@ function populateCommercesSelects() {
         option.selected = true;
       }
       creditSelect.appendChild(option);
+    });
+  }
+
+  if (clientExtractSelect) {
+    const currentVal = clientExtractSelect.value;
+    clientExtractSelect.innerHTML = '<option value="">Todos os estabelecimentos</option>';
+    commercesList.forEach(c => {
+      const option = document.createElement('option');
+      option.value = c.id;
+      option.innerText = c.nome;
+      if (String(c.id) === String(currentVal)) option.selected = true;
+      clientExtractSelect.appendChild(option);
     });
   }
 }
@@ -271,6 +337,7 @@ function getFixedPriceFormatted(address) {
 
 async function fetchClientHistory() {
   await fetchCommerces();
+
   const currentCreds = mockData.credentials[mockData.activeProfile];
   const currentCommerce = currentCreds?.commerceName || '';
   const isOwner = mockData.activeProfile === 'owner';
@@ -278,9 +345,6 @@ async function fetchClientHistory() {
   if (!supabaseClient) return;
 
   try {
-    // O dono não possui commerceName: filtrar por "Parceiro Garra" fazia a
-    // consulta administrativa voltar vazia. Clientes continuam isolados pela
-    // sua loja; o painel do dono lê apenas a página solicitada do histórico.
     let historyQuery = supabaseClient
       .from('client_history')
       .select('*')
@@ -294,27 +358,53 @@ async function fetchClientHistory() {
     const historyRes = await historyQuery;
     if (historyRes.error) throw historyRes.error;
 
-    // Entregas pendentes pertencem somente a mockData.pendingDeliveries. Não
-    // misturá-las no histórico evita duplicação visual e contadores inflados.
     mockData.clientHistory = (historyRes.data || []).map(item => ({
-      id: escapeHtml(String(item.id)),
+      // IDs e metadados técnicos permanecem crus para sincronização da 99Food.
+      id: String(item.id ?? ''),
+      external_id: item.external_id == null ? '' : String(item.external_id),
+      food99_app_shop_id: item.food99_app_shop_id == null
+        ? ''
+        : String(item.food99_app_shop_id),
+      pickup_code: item.pickup_code == null ? '' : String(item.pickup_code),
+      observacao: item.observacao || '',
+      loja_id: item.loja_id || null,
+      dispatch_status: item.dispatch_status || null,
+      dispatch_processing_at: item.dispatch_processing_at || null,
+      dispatch_sent_at: item.dispatch_sent_at || null,
+      dispatch_confirmed_at: item.dispatch_confirmed_at || null,
+      delivered_status: item.delivered_status || null,
+      delivered_processing_at: item.delivered_processing_at || null,
+      delivered_sent_at: item.delivered_sent_at || null,
+      delivered_confirmed_at: item.delivered_confirmed_at || null,
+
       client: escapeHtml(item.client || 'Parceiro Garra'),
       destName: escapeHtml(item.dest_name || 'Cliente'),
       address: escapeHtml(item.address),
-      // Mantido cru para o agrupamento financeiro; o escape ocorre ao renderizar.
       rider: item.rider || 'Sem entregador',
       dist: escapeHtml(item.dist ? item.dist.split('|')[0] : '—'),
       price: formatMoneyBR(getFixedPriceByAddress(item.address)),
       date: escapeHtml(item.date),
       status: escapeHtml(item.status),
-      statusClass: escapeHtml(item.status_class || (item.status === 'Entregue' || item.status === 'Concluído' ? 'status-success' : (item.status === 'Cancelado' ? 'status-danger' : 'status-progress'))),
+      statusClass: escapeHtml(
+        item.status_class ||
+        (
+          item.status === 'Entregue' || item.status === 'Concluído'
+            ? 'status-success'
+            : item.status === 'Cancelado'
+              ? 'status-danger'
+              : 'status-progress'
+        )
+      ),
       payment_status: escapeHtml(item.payment_status || 'Pendente'),
+      pickup_lat: item.pickup_lat,
+      pickup_lng: item.pickup_lng,
+      dest_lat: item.dest_lat,
+      dest_lng: item.dest_lng,
       created_at: item.created_at,
-      total_order_amount: item.total_order_amount || null
+      total_order_amount: item.total_order_amount || null,
     }));
-
   } catch (err) {
-    console.error("Error fetching client history from Supabase:", err);
+    console.error('Error fetching client history from Supabase:', err);
   }
 }
 
@@ -363,17 +453,26 @@ async function searchActiveRidersForExtract() {
   }
 
   try {
-    const { data, error } = await supabaseClient
-      .from('client_history')
-      .select('rider, created_at')
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString());
+    const [historyResult, creditsResult, consumablesResult, fleetResult] = await Promise.all([
+      supabaseClient.from('client_history').select('rider, created_at')
+        .gte('created_at', start.toISOString()).lte('created_at', end.toISOString()),
+      supabaseClient.from('rider_credits').select('rider_id, target_date')
+        .gte('target_date', startDateStr).lte('target_date', endDateStr),
+      supabaseClient.from('rider_consumables').select('rider_id, created_at')
+        .gte('created_at', start.toISOString()).lte('created_at', end.toISOString()),
+      supabaseClient.from('fleet').select('id, name'),
+    ]);
+    if (historyResult.error || creditsResult.error || consumablesResult.error || fleetResult.error) {
+      throw historyResult.error || creditsResult.error || consumablesResult.error || fleetResult.error;
+    }
 
-    if (error) throw error;
-
-    const activeRiderNames = [...new Set(data
+    const fleetById = new Map((fleetResult.data || []).map(rider => [String(rider.id), rider.name]));
+    const activeRiderNames = [...new Set((historyResult.data || [])
       .map(item => item.rider)
       .filter(name => name && name !== 'Nenhum' && name !== 'Aguardando...' && name !== 'Sem entregador')
+      .concat((creditsResult.data || []).map(item => fleetById.get(String(item.rider_id))))
+      .concat((consumablesResult.data || []).map(item => fleetById.get(String(item.rider_id))))
+      .filter(Boolean)
     )];
 
     const grid = document.getElementById('extract-riders-grid');
@@ -431,7 +530,7 @@ async function generateRiderExtract() {
   if (end) end.setHours(23, 59, 59, 999);
 
   try {
-    const { data, error } = await supabaseClient
+    const { data: deliveries, error } = await supabaseClient
       .from('client_history')
       .select('*')
       .eq('rider', riderName)
@@ -441,23 +540,51 @@ async function generateRiderExtract() {
 
     if (error) throw error;
 
+    const { data: rider, error: riderError } = await supabaseClient
+      .from('fleet')
+      .select('id')
+      .eq('name', riderName)
+      .maybeSingle();
+    if (riderError) throw riderError;
+
+    const riderId = rider?.id;
+    const [creditsResult, consumablesResult] = riderId
+      ? await Promise.all([
+          supabaseClient
+            .from('rider_credits')
+            .select('amount, description, target_date, created_at')
+            .eq('rider_id', riderId)
+            .gte('target_date', startDateStr)
+            .lte('target_date', endDateStr),
+          supabaseClient
+            .from('rider_consumables')
+            .select('amount, data_competencia, created_at')
+            .eq('rider_id', riderId)
+            .gte('created_at', start.toISOString())
+            .lte('created_at', end.toISOString()),
+        ])
+      : [{ data: [], error: null }, { data: [], error: null }];
+
+    if (creditsResult.error) throw creditsResult.error;
+    if (consumablesResult.error) throw consumablesResult.error;
+
     document.getElementById('extract-rider-title').innerText = `Extrato de ${riderName}`;
     const startFormatted = start.toLocaleDateString('pt-BR');
     const endFormatted = end.toLocaleDateString('pt-BR');
     document.getElementById('extract-rider-period').innerText = `Período selecionado: ${startFormatted} até ${endFormatted}`;
 
-    let totalServices = 0;
-    let totalPayout = 0;
+    const completedDeliveries = (deliveries || []).filter(item =>
+      item.status === 'Entregue' || item.status === 'Concluído'
+    );
+    let gross = 0;
 
     const tbody = document.getElementById('extract-details-table-body');
     tbody.innerHTML = '';
 
-    data.forEach(item => {
-      totalServices++;
-      
+    completedDeliveries.forEach(item => {
       const grossPrice = getFixedPriceByAddress(item.address);
-      const netPayout = grossPrice * 0.90;
-      totalPayout += netPayout;
+      const deliveryPayout = grossPrice * 0.90;
+      gross += grossPrice;
 
       let displayId = item.id;
       if (item.id.toLowerCase().includes('99food')) {
@@ -481,15 +608,32 @@ async function generateRiderExtract() {
           </div>
         </td>
         <td>${formatMoneyBR(grossPrice)}</td>
-        <td><strong class="text-yellow" style="color: var(--primary) !important;">${formatMoneyBR(netPayout)}</strong></td>
-        <td>${escapeHtml(item.date)}</td>
+        <td><strong class="text-yellow" style="color: var(--primary) !important;">${formatMoneyBR(deliveryPayout)}</strong></td>
+        <td>${escapeHtml(new Date(item.created_at).toLocaleString('pt-BR'))}</td>
         <td><span class="status-indicator ${escapeHtml(item.status_class || 'status-neutral')}">${escapeHtml(item.status)}</span></td>
       `;
       tbody.appendChild(tr);
     });
 
-    document.getElementById('extract-total-services').innerText = totalServices;
-    document.getElementById('extract-total-payout').innerText = formatMoneyBR(totalPayout);
+    const consumables = (consumablesResult.data || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const credits = (creditsResult.data || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const payment = GarraFinancial.calculateWeeklyRiderPayment(gross, credits, consumables);
+    document.getElementById('extract-total-services').innerText = completedDeliveries.length;
+    document.getElementById('extract-total-gross').innerText = formatMoneyBR(payment.grossAmount);
+    document.getElementById('extract-total-fee').innerText = `- ${formatMoneyBR(payment.garraFee)}`;
+    document.getElementById('extract-total-payout').innerText = formatMoneyBR(payment.deliveryNet);
+    document.getElementById('extract-total-consumables').innerText = `- ${formatMoneyBR(payment.consumablesAmount)}`;
+    document.getElementById('extract-total-credits').innerText = `+ ${formatMoneyBR(payment.creditsAmount)}`;
+    document.getElementById('extract-total-net').innerText = formatMoneyBR(payment.net);
+
+    const adjustments = document.getElementById('extract-adjustments-list');
+    if (adjustments) {
+      adjustments.innerHTML = (creditsResult.data || []).length
+        ? `<h4 style="margin-bottom:8px;">Créditos / Ajustes</h4>${creditsResult.data.map(item =>
+            `<div class="text-muted" style="padding:6px 0;">+ ${formatMoneyBR(Number(item.amount) || 0)} — ${escapeHtml(item.description || 'Crédito adicional')} (${escapeHtml(parseLocalDate(item.target_date).toLocaleDateString('pt-BR'))})</div>`
+          ).join('')}`
+        : '';
+    }
 
     document.getElementById('extract-details-card').style.display = 'block';
 
@@ -505,12 +649,139 @@ async function generateRiderExtract() {
 window.searchActiveRidersForExtract = searchActiveRidersForExtract;
 window.generateRiderExtract = generateRiderExtract;
 
+let clientExtractLoading = false;
+
+function isCompletedClientExtractStatus(status) {
+  const normalized = String(status || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return normalized === 'entregue' || normalized === 'concluido';
+}
+
+function getClientExtractGrossAmount(order) {
+  const totalOrderAmount = parseCurrencyBR(order?.total_order_amount);
+  return totalOrderAmount > 0 ? totalOrderAmount : parseCurrencyBR(order?.price);
+}
+
+async function searchClientExtract() {
+  if (clientExtractLoading) return;
+
+  const startInput = document.getElementById('client-extract-start-date');
+  const endInput = document.getElementById('client-extract-end-date');
+  const commerceSelect = document.getElementById('client-extract-client-filter');
+  const resultsCard = document.getElementById('client-extract-results-card');
+  const tableBody = document.getElementById('client-extract-table-body');
+  const button = document.querySelector('#tab-owner-client-extract button.btn-primary');
+
+  if (!startInput || !endInput || !commerceSelect || !resultsCard || !tableBody) return;
+  if (!supabaseClient) {
+    tableBody.innerHTML = '<tr><td colspan="7">Não foi possível conectar ao banco de dados.</td></tr>';
+    resultsCard.style.display = 'block';
+    return;
+  }
+
+  const start = parseLocalDate(startInput.value);
+  const end = parseLocalDate(endInput.value);
+  const commerceId = String(commerceSelect.value || '').trim();
+  const commerce = commercesList.find(item => String(item.id) === commerceId);
+
+  if (!start || !end || !commerceId || !commerce) {
+    alert('Selecione a data inicial, a data final e o estabelecimento.');
+    return;
+  }
+
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  if (start > end) {
+    alert('A data inicial não pode ser posterior à data final.');
+    return;
+  }
+
+  clientExtractLoading = true;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Carregando...';
+  }
+  resultsCard.style.display = 'block';
+  tableBody.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>';
+
+  try {
+    const { data, error } = await supabaseClient
+      .from('client_history')
+      .select('id, loja_id, client, dest_name, address, date, created_at, status, total_order_amount, price')
+      .gte('created_at', start.toISOString())
+      .lte('created_at', end.toISOString())
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const selectedName = normalizeCommerceName(commerce.nome);
+    const deliveries = (data || []).filter(order => {
+      if (!isCompletedClientExtractStatus(order.status)) return false;
+
+      const lojaId = String(order.loja_id || '').trim();
+      // loja_id é a chave principal: registros vinculados a outra loja nunca
+      // entram pelo fallback de nome.
+      if (lojaId) return lojaId === commerceId;
+      return normalizeCommerceName(order.client) === selectedName;
+    });
+
+    const grossTotal = deliveries.reduce(
+      (total, order) => total + getClientExtractGrossAmount(order),
+      0,
+    );
+
+    document.getElementById('client-extract-title').textContent = `Faturamento Bruto — ${commerce.nome}`;
+    document.getElementById('client-extract-period').textContent =
+      `Período selecionado: ${start.toLocaleDateString('pt-BR')} até ${end.toLocaleDateString('pt-BR')}`;
+    document.getElementById('client-extract-total-services').textContent = String(deliveries.length);
+    document.getElementById('client-extract-total-gross').textContent = formatMoneyBR(grossTotal);
+    document.getElementById('client-extract-total-credits').textContent = formatMoneyBR(0);
+    document.getElementById('client-extract-total-consumables').textContent = formatMoneyBR(0);
+    document.getElementById('client-extract-total-net').textContent = formatMoneyBR(grossTotal);
+
+    if (deliveries.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="7">Nenhuma tele concluída encontrada para este estabelecimento no período.</td></tr>';
+      return;
+    }
+
+    tableBody.innerHTML = deliveries.map(order => {
+      const date = order.created_at ? new Date(order.created_at).toLocaleString('pt-BR') : String(order.date || '—');
+      return `<tr>
+        <td>${escapeHtml(order.id || '—')}</td>
+        <td>${escapeHtml(commerce.nome)}</td>
+        <td>${escapeHtml(order.dest_name || 'Cliente')}</td>
+        <td>${escapeHtml(order.address || '—')}</td>
+        <td>${formatMoneyBR(getClientExtractGrossAmount(order))}</td>
+        <td>${escapeHtml(date)}</td>
+        <td>${escapeHtml(order.status || '—')}</td>
+      </tr>`;
+    }).join('');
+  } catch (error) {
+    console.error('Erro ao buscar extrato de clientes:', error);
+    tableBody.innerHTML = '<tr><td colspan="7">Não foi possível carregar o extrato. Tente novamente.</td></tr>';
+  } finally {
+    clientExtractLoading = false;
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = 'Buscar Extrato <i data-lucide="search"></i>';
+      if (window.lucide) lucide.createIcons();
+    }
+  }
+}
+
+window.searchClientExtract = searchClientExtract;
+
 async function fetchPendingDeliveries() {
   if (!supabaseClient) return;
+
   try {
     const currentCreds = mockData.credentials[mockData.activeProfile];
     const currentCommerce = currentCreds?.commerceName || '';
     const isOwner = mockData.activeProfile === 'owner';
+
     let query = supabaseClient
       .from('pending_deliveries')
       .select('*')
@@ -522,8 +793,26 @@ async function fetchPendingDeliveries() {
 
     const { data, error } = await query;
     if (error) throw error;
+
     mockData.pendingDeliveries = (data || []).map(item => ({
-      id: escapeHtml(String(item.id)),
+      // IDs e metadados técnicos permanecem crus. O escape ocorre ao renderizar.
+      id: String(item.id ?? ''),
+      external_id: item.external_id == null ? '' : String(item.external_id),
+      food99_app_shop_id: item.food99_app_shop_id == null
+        ? ''
+        : String(item.food99_app_shop_id),
+      pickup_code: item.pickup_code == null ? '' : String(item.pickup_code),
+      observacao: item.observacao || '',
+      loja_id: item.loja_id || null,
+      dispatch_status: item.dispatch_status || null,
+      dispatch_processing_at: item.dispatch_processing_at || null,
+      dispatch_sent_at: item.dispatch_sent_at || null,
+      dispatch_confirmed_at: item.dispatch_confirmed_at || null,
+      delivered_status: item.delivered_status || null,
+      delivered_processing_at: item.delivered_processing_at || null,
+      delivered_sent_at: item.delivered_sent_at || null,
+      delivered_confirmed_at: item.delivered_confirmed_at || null,
+
       client: escapeHtml(item.client),
       destName: escapeHtml(item.dest_name),
       address: escapeHtml(item.address),
@@ -536,10 +825,10 @@ async function fetchPendingDeliveries() {
       dest_lat: item.dest_lat,
       dest_lng: item.dest_lng,
       created_at: item.created_at,
-      total_order_amount: item.total_order_amount || null
+      total_order_amount: item.total_order_amount || null,
     }));
   } catch (err) {
-    console.error("Error fetching pending deliveries from Supabase:", err);
+    console.error('Error fetching pending deliveries from Supabase:', err);
   }
 }
 
@@ -1119,6 +1408,8 @@ async function switchDashboardTab(targetTab) {
     if (endInput && !endInput.value) {
       endInput.value = lastDay.toISOString().split('T')[0];
     }
+  } else if (targetTab === 'owner-client-extract') {
+    await fetchCommerces();
   } else if (targetTab === 'owner-settings') {
     await fetchFleet();
     renderRiderSettings();
@@ -1576,19 +1867,9 @@ function parseOrderDate(dateText, createdAt) {
 
 function isOrderInCurrentWeek(order) {
   const { monday, sunday } = getCurrentWeekBounds();
-  const orderDate = parseOrderDate(order.date, order.created_at);
+  const orderDate = GarraFinancial.getCreatedAtDate(order);
+  if (!orderDate) return false;
   return orderDate >= monday && orderDate <= sunday;
-}
-
-// Créditos/Ajustes são lançados em valor bruto e também compõem a base da
-// taxa Garra. Consumíveis são abatidos integralmente após a taxa.
-function calculateRiderWeeklyPayment(gross, credits, consumables) {
-  const grossAmount = Number(gross) || 0;
-  const creditsAmount = Number(credits) || 0;
-  const consumablesAmount = Number(consumables) || 0;
-  const garraFee = (grossAmount + creditsAmount) * 0.10;
-  const net = grossAmount + creditsAmount - garraFee - consumablesAmount;
-  return { garraFee, net };
 }
 
 function renderRiderPayments() {
@@ -1646,7 +1927,8 @@ function renderRiderPayments() {
 
       // Filter by date
       if (start || end) {
-        const orderDate = parseOrderDate(order.date, order.created_at);
+        const orderDate = GarraFinancial.getCreatedAtDate(order);
+        if (!orderDate) return false;
         if (start && orderDate < start) return false;
         if (end && orderDate > end) return false;
       }
@@ -1708,7 +1990,7 @@ function renderRiderPayments() {
   const grandTotalGross = rows.reduce((sum, row) => sum + row.total, 0);
   const grandTotalConsumables = rows.reduce((sum, row) => sum + (row.consumablesTotal || 0), 0);
   const grandTotalCredits = rows.reduce((sum, row) => sum + (row.creditsTotal || 0), 0);
-  const grandTotalNet = calculateRiderWeeklyPayment(
+  const grandTotalNet = GarraFinancial.calculateWeeklyRiderPayment(
     grandTotalGross,
     grandTotalCredits,
     grandTotalConsumables,
@@ -1721,7 +2003,7 @@ function renderRiderPayments() {
     const gross = row.total;
     const consumables = row.consumablesTotal || 0;
     const credits = row.creditsTotal || 0;
-    const { garraFee, net } = calculateRiderWeeklyPayment(gross, credits, consumables);
+    const { garraFee, net } = GarraFinancial.calculateWeeklyRiderPayment(gross, credits, consumables);
     const avg = row.count ? gross / row.count : 0;
 
     // A rider is considered Paid in this period if they have orders and all of them are marked 'Pago'
@@ -4012,6 +4294,14 @@ async function dispatchDelivery(deliveryId, riderId) {
   if (deliveryIndex === -1) return;
   const delivery = mockData.pendingDeliveries[deliveryIndex];
 
+  if (is99FoodDeliveryRecord(delivery) && !String(delivery.external_id || '').trim()) {
+    alert(
+      'Pedido 99Food sem identificador externo válido. ' +
+      'Atualize os dados da tele antes de despachar.'
+    );
+    return;
+  }
+
   // Find rider
   const rider = mockData.fleet.find(r => r.id === riderId);
   if (!rider) return;
@@ -4049,7 +4339,12 @@ async function dispatchDelivery(deliveryId, riderId) {
       pickup_lng: delivery.pickup_lng,
       dest_lat: delivery.dest_lat,
       dest_lng: delivery.dest_lng,
-      total_order_amount: delivery.total_order_amount || null
+      total_order_amount: delivery.total_order_amount || null,
+      external_id: delivery.external_id ? String(delivery.external_id) : null,
+      food99_app_shop_id: delivery.food99_app_shop_id || null,
+      observacao: delivery.observacao || null,
+      pickup_code: delivery.pickup_code || null,
+      loja_id: delivery.loja_id || null
     };
 
     let { error: historyError } = await supabaseClient
@@ -4058,6 +4353,11 @@ async function dispatchDelivery(deliveryId, riderId) {
 
     if (historyError && historyError.code === '42703') {
       delete newHistoryItem.total_order_amount;
+      delete newHistoryItem.external_id;
+      delete newHistoryItem.food99_app_shop_id;
+      delete newHistoryItem.observacao;
+      delete newHistoryItem.pickup_code;
+      delete newHistoryItem.loja_id;
       const { error: retryError } = await supabaseClient
         .from('client_history')
         .insert([newHistoryItem]);
@@ -6896,7 +7196,8 @@ function renderOwnerFinancials() {
     
     if (!start && !end) return true;
     
-    const orderDate = parseOrderDate(order.date, order.created_at);
+    const orderDate = GarraFinancial.getCreatedAtDate(order);
+    if (!orderDate) return false;
     if (start && orderDate < start) return false;
     if (end && orderDate > end) return false;
     return true;
@@ -7098,7 +7399,8 @@ async function updateRiderPaymentStatus(riderName, newStatus) {
       if (order.rider !== riderName) return false;
 
       if (start || end) {
-        const orderDate = parseOrderDate(order.date, order.created_at);
+        const orderDate = GarraFinancial.getCreatedAtDate(order);
+        if (!orderDate) return false;
         if (start && orderDate < start) return false;
         if (end && orderDate > end) return false;
       }
@@ -8323,10 +8625,22 @@ function updateClientDashboardOverview() {
 
 function openAddCommerceModal() {
   const modal = document.getElementById('modal-add-commerce');
-  if (modal) {
-    document.getElementById('add-commerce-name').value = '';
-    modal.classList.remove('hidden');
-  }
+  if (!modal) return;
+
+  [
+    'add-commerce-name',
+    'add-commerce-email',
+    'commerce-email',
+    'new-commerce-email',
+    'add-commerce-password',
+    'commerce-password',
+    'new-commerce-password',
+  ].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+
+  modal.classList.remove('hidden');
 }
 
 function closeAddCommerceModal(event) {
@@ -8339,77 +8653,154 @@ function closeAddCommerceModal(event) {
 
 async function submitAddCommerce(event) {
   if (event) event.preventDefault();
-  const input = document.getElementById('add-commerce-name');
-  if (!input) return;
 
-  const nome = input.value.trim();
-  if (!nome) return;
+  const nameInput = document.getElementById('add-commerce-name');
+  const emailInput =
+    document.getElementById('add-commerce-email') ||
+    document.getElementById('commerce-email') ||
+    document.getElementById('new-commerce-email');
+  const passwordInput =
+    document.getElementById('add-commerce-password') ||
+    document.getElementById('commerce-password') ||
+    document.getElementById('new-commerce-password');
 
-  showToastNotification('Adicionando comércio...');
+  const nome = String(nameInput?.value || '').trim();
+  const email = String(emailInput?.value || '').trim().toLowerCase();
+  const password = String(passwordInput?.value || '');
+
+  if (!nome) {
+    alert('Informe o nome do estabelecimento.');
+    return;
+  }
+
+  if (normalizeCommerceName(nome) === 'bora acai') {
+    alert('O Bora Açaí principal já existe e não pode ser cadastrado novamente.');
+    return;
+  }
+
+  if (commercesList.some(c => normalizeCommerceName(c.nome) === normalizeCommerceName(nome))) {
+    alert('Já existe um estabelecimento com esse nome.');
+    return;
+  }
+
+  if (!emailInput || !passwordInput) {
+    alert(
+      'O cadastro de um cliente precisa de e-mail e senha. ' +
+      'Adicione esses campos ao modal e use o provisionamento de conta.'
+    );
+    return;
+  }
+
+  if (!email || !email.includes('@')) {
+    alert('Informe um e-mail válido.');
+    return;
+  }
+
+  if (password.length < 6) {
+    alert('A senha precisa ter pelo menos 6 caracteres.');
+    return;
+  }
+
+  showToastNotification('Criando estabelecimento e acesso do cliente...');
 
   try {
-    if (supabaseClient) {
-      const { error } = await supabaseClient
-        .from('lojas')
-        .insert([{ nome }]);
-      if (error) throw error;
-    } else {
-      commercesList.push({ id: String(Date.now()), nome });
+    const result = await invokeFn(
+      'provision-commerce-account',
+      {
+        nome,
+        name: nome,
+        commerceName: nome,
+        commerce_name: nome,
+        email,
+        password,
+        senha: password,
+      },
+      1,
+    );
+
+    if (result?.ok === false) {
+      throw new Error(result.erro || 'Falha ao provisionar a conta.');
     }
 
     await fetchCommerces();
     updateOwnerDashboardOverview();
     closeAddCommerceModal();
-    showToastNotification(`Comércio "${nome}" adicionado com sucesso.`);
+    showToastNotification(`Cliente "${nome}" criado com acesso próprio.`);
   } catch (err) {
-    console.error('Error adding commerce:', err);
-    alert('Erro ao adicionar comércio: ' + err.message);
+    console.error('Error provisioning commerce account:', err);
+    alert('Erro ao criar o cliente: ' + (err.message || err));
   }
 }
 
 async function deleteCommerceByName(nome) {
-  if (!confirm(`Deseja realmente remover o comércio "${nome}"? Esta ação é irreversível e excluirá o comércio e todas as suas entregas associadas.`)) {
+  const normalizedName = normalizeCommerceName(nome);
+
+  if (normalizedName === 'bora acai') {
+    alert('O Bora Açaí principal é protegido e não pode ser removido pelo painel.');
     return;
   }
 
-  showToastNotification('Removendo comércio...');
+  const matches = commercesList.filter(
+    commerce => normalizeCommerceName(commerce.nome) === normalizedName
+  );
+
+  if (matches.length !== 1) {
+    alert(
+      matches.length > 1
+        ? 'Existem cadastros duplicados com esse nome. Faça a correção pelo banco antes de remover.'
+        : 'Estabelecimento não encontrado.'
+    );
+    return;
+  }
+
+  const target = matches[0];
+
+  if (!confirm(`Deseja remover apenas o cadastro "${target.nome}"? Entregas e histórico não serão apagados.`)) {
+    return;
+  }
+
+  showToastNotification('Verificando vínculos do estabelecimento...');
 
   try {
-    if (supabaseClient) {
-      // 1. Delete from client_history where client matches the name
-      await supabaseClient
-        .from('client_history')
-        .delete()
-        .eq('client', nome);
+    if (!supabaseClient) {
+      commercesList = commercesList.filter(c => String(c.id) !== String(target.id));
+    } else {
+      const [pendingResult, historyResult] = await Promise.all([
+        supabaseClient
+          .from('pending_deliveries')
+          .select('id', { count: 'exact', head: true })
+          .eq('loja_id', target.id),
+        supabaseClient
+          .from('client_history')
+          .select('id', { count: 'exact', head: true })
+          .eq('loja_id', target.id),
+      ]);
 
-      // 2. Delete from pending_deliveries where client matches the name
-      await supabaseClient
-        .from('pending_deliveries')
-        .delete()
-        .eq('client', nome);
+      if (pendingResult.error) throw pendingResult.error;
+      if (historyResult.error) throw historyResult.error;
 
-      // 3. Delete from lojas table
+      const linkedCount = Number(pendingResult.count || 0) + Number(historyResult.count || 0);
+      if (linkedCount > 0) {
+        throw new Error(
+          `O estabelecimento possui ${linkedCount} entrega(s) vinculada(s). ` +
+          'Transfira ou arquive os vínculos antes de remover o cadastro.'
+        );
+      }
+
       const { error } = await supabaseClient
         .from('lojas')
         .delete()
-        .eq('nome', nome);
+        .eq('id', target.id);
 
       if (error) throw error;
-    } else {
-      commercesList = commercesList.filter(c => c.nome !== nome);
     }
 
     await fetchCommerces();
-    await fetchClientHistory();
-    await fetchPendingDeliveries();
-    
-    renderTelesUnified();
     updateOwnerDashboardOverview();
-    
-    showToastNotification(`Comércio "${nome}" e suas entregas foram removidos.`);
+    showToastNotification(`Cadastro "${target.nome}" removido com segurança.`);
   } catch (err) {
     console.error('Error deleting commerce:', err);
-    alert('Erro ao remover comércio: ' + err.message);
+    alert('Não foi possível remover o estabelecimento: ' + (err.message || err));
   }
 }
 
@@ -8513,186 +8904,18 @@ window.closeQuickMapModal = function(event) {
   quickMapInstance = null;
 };
 
-window.simularIntegracao99Food = async function() {
-  console.log("=== INICIANDO SIMULAÇÃO DE INTEGRAÇÃO 99FOOD ===");
-
-  // 1. Simulação do Payload Nativo da API do 99Food (Com ID e endereço válidos)
-  const orderNum = Math.floor(100000 + Math.random() * 900000); // 6 dígitos reais
-  const shortId = `TEST-${orderNum.toString().slice(-4)}`; // e.g. TEST-8000
-  const simulatedId = `99Food #${shortId} (${orderNum})`;
-
-  const payload99 = {
-    order_id: simulatedId,
-    customer_name: 'Guilherme Silva (Teste 99Food)',
-    delivery_address_string: 'Av. Sapucaia, 1200 - Centro, Sapucaia do Sul - RS',
-    delivery_latitude: -29.8378,
-    delivery_longitude: -51.1444,
-    items: ['X-Salada Especial', 'Coca-Cola 350ml']
-  };
-
-  console.log("Payload nativo recebido do 99Food:", payload99);
-
-  // 2. Função de Tratamento / Conversão para o padrão do Garra Delivery
-  const converterParaGarra = (rawOrder) => {
-    let finalPrice = 12.00;
-    if (mockData && mockData.cities) {
-      const sortedCities = [...(mockData.cities || [])].sort((a, b) => b.nome.length - a.nome.length);
-      const matchedCity = sortedCities.find(city => rawOrder.delivery_address_string.toLowerCase().includes(city.nome.toLowerCase()));
-      if (matchedCity) {
-        finalPrice = matchedCity.taxa;
-      }
-    }
-
-    return {
-      id: rawOrder.order_id,
-      client: '99Food',
-      dest_name: rawOrder.customer_name,
-      address: rawOrder.delivery_address_string,
-      dist: '3.8 km',
-      price: 'R$ ' + finalPrice.toFixed(2).replace('.', ','),
-      payment: 'Pago pelo App (99Food)',
-      cargo: '🍔 Itens: ' + rawOrder.items.join(' + '),
-      pickup_lat: -29.842173,
-      pickup_lng: -51.126764,
-      dest_lat: rawOrder.delivery_latitude,
-      dest_lng: rawOrder.delivery_longitude,
-      total_order_amount: 'R$ 44,00'
-    };
-  };
-
-  const convertedTele = converterParaGarra(payload99);
-  console.log("Payload convertido para o padrão Garra Delivery:", convertedTele);
-
-  // 3. Inserção direta no Supabase com Geocoder Coordinate Shield
-  if (!supabaseClient) {
-    console.error("Erro: supabaseClient não inicializado. Verifique a conexão com o banco.");
-    alert("Erro: Supabase não conectado. Insira as variáveis locais no arquivo .env.");
-    return;
-  }
-
-  const proceedWithInsertion = async (tele) => {
-    try {
-      console.log("Enviando tele para o Supabase...", tele);
-      let { error } = await supabaseClient
-        .from('pending_deliveries')
-        .insert([tele]);
-
-      if (error && error.code === '42703') {
-        const retryTele = { ...tele };
-        delete retryTele.total_order_amount;
-        const { error: retryError } = await supabaseClient
-          .from('pending_deliveries')
-          .insert([retryTele]);
-        error = retryError;
-      }
-
-      if (error) throw error;
-
-      console.log(`Sucesso! Tele do 99Food criada com ID: ${tele.id}`);
-
-      // Atualiza as locais e re-renderiza o painel
-      await fetchPendingDeliveries();
-      renderTelesUnified();
-      updateOwnerDashboardOverview();
-
-      alert(`Pedido 99Food (#${tele.id}) inserido e renderizado com sucesso no painel!`);
-    } catch (err) {
-      console.error("Erro ao simular integração 99Food:", err);
-      alert("Erro na simulação do 99Food: " + err.message);
-    }
-  };
-
-  // Google Maps Geocoder Shield:
-  // Se as coordenadas forem genéricas (ex: centro de Sapucaia -29.8378, -51.1444) ou se for necessário recalibrar
-  const isGeneric = (Math.abs(convertedTele.dest_lat - (-29.8378)) < 0.01 && Math.abs(convertedTele.dest_lng - (-51.1444)) < 0.01);
-  if (isGeneric && window.google && google.maps && google.maps.Geocoder) {
-    console.log("Geocoder Shield: Coordenadas genéricas detectadas. Buscando localização exata do endereço...");
-    const geocoder = new google.maps.Geocoder();
-    geocoder.geocode({ address: convertedTele.address }, (results, status) => {
-      if (status === 'OK' && results[0]) {
-        const loc = results[0].geometry.location;
-        convertedTele.dest_lat = loc.lat();
-        convertedTele.dest_lng = loc.lng();
-        console.log(`Geocoder Shield: Coordenadas recalibradas com precisão: ${convertedTele.dest_lat}, ${convertedTele.dest_lng}`);
-      } else {
-        console.warn("Geocoder Shield: falha ao buscar endereço, usando dados originais.");
-      }
-      proceedWithInsertion(convertedTele);
-    });
-  } else {
-    proceedWithInsertion(convertedTele);
-  }
+// Ferramentas de homologação foram removidas do bundle público.
+// Use os scripts locais scripts/create-test-delivery.mjs e
+// scripts/delete-test-delivery.mjs. Nenhum token de webhook deve existir no navegador.
+window.simularIntegracao99Food = function() {
+  alert(
+    'A simulação direta pelo navegador foi desativada por segurança. ' +
+    'Use o script local create-test-delivery.mjs.'
+  );
 };
 
-window.dispararWebhook99FoodProducao = async function() {
-  console.log("=== INICIANDO DISPARO EXTERNO DO WEBHOOK 99FOOD EM PRODUÇÃO ===");
-
-  const orderNum = Math.floor(100000 + Math.random() * 900000);
-  const orderId = '#99F-' + orderNum;
-  const requestId = 'req-' + Math.random().toString(36).substring(7);
-
-  // Payload estruturado seguindo o modelo do evento orderNew da 99Food
-  const payload = {
-    type: "orderNew",
-    app_shop_id: "garra-bora-01",
-    data: {
-      order_id: orderId,
-      order_info: {
-        order_index: String(orderNum).slice(-4),
-        receive_address: {
-          poi_address: "Rua Ana Rosa, 221 - Sapucaia do Sul - RS",
-          name: "Cliente Teste 99",
-          poi_lat: -29.8378,
-          poi_lng: -51.1444
-        },
-        price: {
-          order_price: 1500 // R$ 15,00 em centavos
-        },
-        order_items: [
-          {
-            name: "X-Salada Especial",
-            amount: 1
-          },
-          {
-            name: "Coca-Cola 350ml",
-            amount: 1
-          }
-        ]
-      }
-    }
-  };
-
-  const url = 'https://faowxiyxjfogkoynsohj.supabase.co/functions/v1/food99-webhook?token=006371343d7d834ddfa5bb2056339c30';
-
-  console.log(`Disparando POST para ${url}`);
-  console.log("Payload enviado:", payload);
-  console.log(`X-Request-ID anexado: ${requestId}`);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Request-ID': requestId
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const data = await response.json();
-    console.log("Resposta recebida do Servidor de Produção:", data);
-
-    if (data && data.errno === 0 && data.errmsg === 'ok') {
-      console.log("%c CIRCUITO HOMOLOGADO E CONFIRMADO COM SUCESSO! ", "background: #22c55e; color: #fff; font-weight: bold; padding: 4px;");
-      alert(`Webhook enviado com sucesso!\nID do Pedido: ${orderId}\nResposta: ${JSON.stringify(data)}`);
-    } else {
-      console.error("Servidor retornou erro ou formato inválido:", data);
-      alert(`Erro na resposta do webhook: ${JSON.stringify(data)}`);
-    }
-  } catch (err) {
-    console.error("Falha ao efetuar disparo do webhook:", err);
-    alert("Falha no disparo do webhook: " + err.message);
-  }
+window.dispararWebhook99FoodProducao = function() {
+  alert(
+    'O disparo manual do webhook de produção foi desativado por segurança.'
+  );
 };
-
-
-

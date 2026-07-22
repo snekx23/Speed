@@ -502,6 +502,39 @@ function getPaymentMethod(order) {
   return String(legacyParts[1] || order.payment_status || 'A combinar').trim();
 }
 
+// O identificador externo Ã© imutÃ¡vel e nunca deve ser convertido para nÃºmero.
+function getExternalIdFromDelivery(delivery) {
+  const directId = String(delivery?.external_id || '').trim();
+  if (directId) return directId;
+  const legacyMatch = String(delivery?.id || '').match(/\(([^()]+)\)\s*$/);
+  return legacyMatch ? String(legacyMatch[1]).trim() : '';
+}
+
+function isLocalTestDelivery(delivery) {
+  const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  return isLocalHost && getExternalIdFromDelivery(delivery).startsWith('TESTE-CODEX-');
+}
+
+function is99FoodDelivery(delivery) {
+  const payment = getPaymentMethod(delivery).toLowerCase();
+  return String(delivery?.id || '').startsWith('99Food') ||
+    String(delivery?.food99_app_shop_id || '') !== '' || Boolean(getExternalIdFromDelivery(delivery)) ||
+    payment.includes('99food') || String(delivery?.client || '').toLowerCase().includes('99food');
+}
+
+async function readFood99Response(response) {
+  const responseText = await response.text();
+  let payload = null;
+  try { payload = responseText ? JSON.parse(responseText) : null; } catch (_) { /* resposta pode ser texto */ }
+  return { responseText, payload };
+}
+
+function food99ErrorMessage(response, payload, responseText) {
+  const base = payload?.erro || payload?.message || responseText || `HTTP ${response.status}`;
+  const details = [payload?.code, payload?.debug_id ? `debug: ${payload.debug_id}` : '', payload?.stage].filter(Boolean);
+  return details.length ? `${base} (${details.join(' | ')})` : base;
+}
+
 
 function renderTeleCards(deliveries) {
   const container = document.getElementById('pwa-teles-container');
@@ -530,10 +563,8 @@ function renderTeleCards(deliveries) {
     const paymentMethod = getPaymentMethod(order);
     const payLower = paymentMethod.toLowerCase();
 
-    const is99Food = String(order.id || '').startsWith('99Food') || 
-                      String(order.food99_app_shop_id || '') !== '' ||
-                      payLower.includes('99food') || 
-                      String(order.client || '').toLowerCase().includes('99food');
+    const is99Food = is99FoodDelivery(order);
+    const isLocalTest = isLocalTestDelivery(order);
 
     const isIfood = payLower.includes('ifood') || String(order.client || '').toLowerCase().includes('ifood');
     const isIntegration = is99Food || isIfood || payLower.includes('ifood') || payLower.includes('99food');
@@ -636,6 +667,7 @@ function renderTeleCards(deliveries) {
       <button class="pwa-tele-summary" onclick="toggleTeleDetails('${order.id}')" style="border: none; background: transparent; padding: 12px 16px; width: 100%; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px; height: auto; min-height: 56px; max-height: none; box-sizing: border-box;">
         <div class="pwa-tele-summary-main" style="display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0;">
           <div class="pwa-tele-summary-customer" style="white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.3; font-size: 0.88rem; font-weight: 700; color: #fff;">#${codigoExibicao} - ${customerName}</div>
+          ${isLocalTest ? '<div style="font-size: 0.68rem; color: #22c55e; font-weight: 800; letter-spacing: .05em;">TELE DE TESTE</div>' : ''}
           <div class="pwa-tele-summary-store" style="white-space: normal; overflow: visible; text-overflow: clip; word-break: break-word; line-height: 1.3; font-size: 0.78rem; color: var(--muted);">${clientName}</div>
         </div>
         <div class="pwa-tele-summary-meta" style="text-align: right; display: flex; flex-direction: column; gap: 4px; justify-content: center; min-width: 80px; flex-shrink: 0; align-items: flex-end;">
@@ -714,7 +746,7 @@ function renderTeleCards(deliveries) {
             </div>
             
             <!-- PWA Code Verification Trava -->
-            ${isTransit && isIntegration ? `
+            ${isTransit && (isIntegration || isLocalTest) ? `
               <div class="pwa-code-verification-container" style="margin-top: 10px; padding: 12px; background: rgba(255, 183, 0, 0.04); border: 1px solid rgba(255, 183, 0, 0.15); border-radius: var(--radius); width: 100%;">
                 <label style="display: block; font-size: 0.8rem; font-weight: 700; color: var(--primary); margin-bottom: 8px; text-align: center; text-transform: uppercase; letter-spacing: 0.5px;">
                   Código de confirmação do cliente (4 dígitos)
@@ -823,18 +855,15 @@ async function confirmPickup(deliveryId) {
   }
 
   const order = activeDeliveriesList.find(d => d.id === deliveryId);
-  const paymentMethod = getPaymentMethod(order || {});
-  const is99Food = String(deliveryId).startsWith('99Food') || 
-                    paymentMethod.toLowerCase().includes('99food') || 
-                    String(order?.client || '').toLowerCase().includes('99food');
+  const is99Food = is99FoodDelivery(order);
+  const isLocalTest = isLocalTestDelivery(order);
 
-  if (is99Food) {
+  if (is99Food && !isLocalTest) {
     try {
       console.log(`Disparando despacho na 99Food para o pedido ${deliveryId}...`);
       
-      const rawId = order?.external_id || order?.id || deliveryId;
-      const matchParentheses = String(rawId).match(/\((\d+)\)/);
-      const cleanOrderId = matchParentheses ? String(matchParentheses[1]) : String(rawId).replace(/[^\d]/g, '');
+      const externalId = getExternalIdFromDelivery(order);
+      if (!externalId) throw new Error('Pedido 99Food sem external_id; o despacho nÃ£o foi enviado.');
 
       const response = await fetch(`${SUPABASE_URL}/functions/v1/food99-pedido`, {
         method: 'POST',
@@ -843,13 +872,14 @@ async function confirmPickup(deliveryId) {
           'Authorization': `Bearer ${SUPABASE_KEY}`
         },
         body: JSON.stringify({
-          order_id: cleanOrderId,
+          order_id: String(externalId),
+          local_id: String(order.id),
           acao: 'despachar'
         })
       });
-      const resData = await response.json();
-      if (!response.ok || !resData.ok) {
-        throw new Error(resData.erro || 'Falha ao despachar na 99Food');
+      const { responseText, payload } = await readFood99Response(response);
+      if (!response.ok || !payload?.ok) {
+        throw new Error(food99ErrorMessage(response, payload, responseText));
       }
       console.log('Sincronização de despacho 99Food realizada com sucesso.');
     } catch (syncErr) {
@@ -892,10 +922,8 @@ async function confirmDelivery(deliveryId) {
   const order = activeDeliveriesList.find(d => d.id === deliveryId);
   const paymentMethod = getPaymentMethod(order || {});
 
-  const is99Food = String(order?.id || '').startsWith('99Food') || 
-                    String(order?.food99_app_shop_id || '') !== '' ||
-                    paymentMethod.toLowerCase().includes('99food') || 
-                    String(order?.client || '').toLowerCase().includes('99food');
+  const is99Food = is99FoodDelivery(order);
+  const isLocalTest = isLocalTestDelivery(order);
   const isIntegration = paymentMethod.toLowerCase().includes('ifood') || 
                         paymentMethod.toLowerCase().includes('99food') || 
                         is99Food;
@@ -903,24 +931,25 @@ async function confirmDelivery(deliveryId) {
   const correctCode = String(order?.confirmation_code || '').trim();
   let codeValue = '';
 
-  if (isIntegration || correctCode) {
+  if (isIntegration || correctCode || isLocalTest) {
     const userInput = prompt("Digite o código de confirmação de 4 dígitos recebido do cliente:");
-    const expected = correctCode || '1234'; 
-    if (userInput === null || userInput.trim() !== expected) {
-      alert("Código incorreto ou inválido!");
+    const enteredCode = String(userInput || '').trim();
+    const expected = isLocalTest ? '1234' : correctCode;
+    const invalidCode = !enteredCode || (expected ? enteredCode !== expected : !/^\d{4}$/.test(enteredCode));
+    if (invalidCode) {
+      alert(isLocalTest ? 'PIN de teste incorreto.' : "Código incorreto ou inválido!");
       if (btn) { btn.disabled = false; btn.innerText = 'Confirmar Entrega'; }
       return;
     }
-    codeValue = userInput.trim();
+    codeValue = enteredCode;
   }
 
-  if (is99Food) {
+  if (is99Food && !isLocalTest) {
     try {
       console.log(`Disparando finalização na 99Food para o pedido ${deliveryId}...`);
 
-      const rawId = order?.external_id || order?.id || deliveryId;
-      const matchParentheses = String(rawId).match(/\((\d+)\)/);
-      const cleanOrderId = matchParentheses ? String(matchParentheses[1]) : String(rawId).replace(/[^\d]/g, '');
+      const externalId = getExternalIdFromDelivery(order);
+      if (!externalId) throw new Error('Pedido 99Food sem external_id; a entrega nÃ£o foi enviada.');
 
       const response = await fetch(`${SUPABASE_URL}/functions/v1/food99-pedido`, {
         method: 'POST',
@@ -929,14 +958,15 @@ async function confirmDelivery(deliveryId) {
           'Authorization': `Bearer ${SUPABASE_KEY}`
         },
         body: JSON.stringify({
-          order_id: cleanOrderId,
+          order_id: String(externalId),
+          local_id: String(order.id),
           acao: 'entregue',
           confirmation_code: codeValue
         })
       });
-      const resData = await response.json();
-      if (!response.ok || !resData.ok) {
-        throw new Error(resData.erro || 'Falha ao finalizar na 99Food');
+      const { responseText, payload } = await readFood99Response(response);
+      if (!response.ok || !payload?.ok) {
+        throw new Error(food99ErrorMessage(response, payload, responseText));
       }
       console.log('Sincronização de entrega 99Food realizada com sucesso.');
     } catch (syncErr) {
@@ -1615,38 +1645,61 @@ async function loadWeeklyBalance() {
   const balanceEl = document.getElementById('drawer-weekly-balance');
   if (!db || !currentRider) return;
 
-  const { data, error } = await db
-    .from('client_history')
-    .select('price, date, address')
-    .eq('rider', currentRider.name)
-    .eq('status', 'Entregue');
+  const [deliveriesResult, creditsResult, consumablesResult] = await Promise.all([
+    db
+      .from('client_history')
+      .select('created_at, address')
+      .eq('rider', currentRider.name)
+      .eq('status', 'Entregue'),
+    db
+      .from('rider_credits')
+      .select('amount, target_date')
+      .eq('rider_id', currentRider.id),
+    db
+      .from('rider_consumables')
+      .select('amount, data_competencia, created_at')
+      .eq('rider_id', currentRider.id),
+  ]);
 
-  if (error || !data) return;
+  if (deliveriesResult.error || creditsResult.error || consumablesResult.error) {
+    console.error('Erro ao carregar saldo semanal do motoboy:', {
+      deliveriesError: deliveriesResult.error,
+      creditsError: creditsResult.error,
+      consumablesError: consumablesResult.error,
+    });
+    return;
+  }
 
-  const { data: credits, error: creditsErr } = await db
-    .from('rider_credits')
-    .select('amount, target_date')
-    .eq('rider_id', currentRider.id);
+  let gross = 0;
+  let credits = 0;
+  let consumables = 0;
 
-  let totalWeekly = 0;
-  data.forEach(order => {
-    const orderDate = parseOrderDate(order.date);
+  (deliveriesResult.data || []).forEach(order => {
+    const orderDate = GarraFinancial.getCreatedAtDate(order);
+    if (!orderDate) return;
     if (isDateInCurrentWeek(orderDate)) {
-      const fixedPrice = getFixedPriceByAddress(order.address);
-      totalWeekly += fixedPrice * 0.90;
+      gross += getFixedPriceByAddress(order.address);
     }
   });
 
-  if (!creditsErr && credits) {
-    credits.forEach(c => {
-      const creditDate = parseLocalDate(c.target_date);
-      if (creditDate && isDateInCurrentWeek(creditDate)) {
-        totalWeekly += parseFloat(c.amount) || 0;
-      }
-    });
-  }
+  (creditsResult.data || []).forEach(credit => {
+    const creditDate = parseLocalDate(credit.target_date);
+    if (creditDate && isDateInCurrentWeek(creditDate)) {
+      credits += parseFloat(credit.amount) || 0;
+    }
+  });
 
-  if (balanceEl) balanceEl.innerText = formatMoney(totalWeekly);
+  (consumablesResult.data || []).forEach(consumable => {
+    const consumableDate = consumable.data_competencia
+      ? parseLocalDate(consumable.data_competencia)
+      : (consumable.created_at ? new Date(consumable.created_at) : null);
+    if (consumableDate && isDateInCurrentWeek(consumableDate)) {
+      consumables += parseFloat(consumable.amount) || 0;
+    }
+  });
+
+  const payment = GarraFinancial.calculateWeeklyRiderPayment(gross, credits, consumables);
+  if (balanceEl) balanceEl.innerText = formatMoney(payment.net);
 }
 
 // ─── MAP INTERACTION OVERLAYS ───────────────────────────────────────────────
@@ -1993,7 +2046,8 @@ function renderReports(period) {
 
   // Filter deliveries based on date period
   const filtered = riderHistory.filter(order => {
-    const orderDate = parseOrderDate(order.date);
+    const orderDate = GarraFinancial.getCreatedAtDate(order);
+    if (!orderDate) return false;
     if (period === 'custom') {
       if (startDate && orderDate < startDate) return false;
       if (endDate && orderDate > endDate) return false;
@@ -2070,7 +2124,7 @@ async function loadWeeklyClosures() {
   try {
     const { data: deliveries, error: deliveriesErr } = await db
       .from('client_history')
-      .select('*')
+      .select('id, rider, address, created_at, payment_status')
       .eq('rider', currentRider.name)
       .or('status.eq.Entregue,status.eq.Concluído');
 
@@ -2092,19 +2146,12 @@ async function loadWeeklyClosures() {
 
     const weeks = {};
 
-    function getMondayOfDate(date) {
-      const d = new Date(date);
-      const day = d.getDay();
-      const monday = new Date(d);
-      monday.setHours(0, 0, 0, 0);
-      monday.setDate(d.getDate() - ((day + 6) % 7));
-      return monday;
-    }
-
     (deliveries || []).forEach(order => {
-      const orderDate = parseOrderDate(order.date);
-      const mon = getMondayOfDate(orderDate);
-      const key = mon.toISOString();
+      const orderDate = GarraFinancial.getCreatedAtDate(order);
+      if (!orderDate) return;
+      const mon = GarraFinancial.getLocalWeekStart(orderDate);
+      const key = GarraFinancial.getLocalWeekKey(orderDate);
+      if (!mon || !key) return;
 
       if (!weeks[key]) {
         weeks[key] = {
@@ -2115,7 +2162,7 @@ async function loadWeeklyClosures() {
           consumablesTotal: 0,
           creditsTotal: 0,
           creditsList: [],
-          isPaid: true
+          isPaid: false
         };
         weeks[key].sunday.setDate(mon.getDate() + 6);
         weeks[key].sunday.setHours(23, 59, 59, 999);
@@ -2123,15 +2170,18 @@ async function loadWeeklyClosures() {
 
       weeks[key].deliveriesCount += 1;
       weeks[key].gross += getFixedPriceByAddress(order.address);
-      if (order.payment_status !== 'Pago') {
+      if (weeks[key].deliveriesCount === 1) {
+        weeks[key].isPaid = order.payment_status === 'Pago';
+      } else if (order.payment_status !== 'Pago') {
         weeks[key].isPaid = false;
       }
     });
 
     (consumables || []).forEach(item => {
-      const itemDate = item.data_competencia ? parseLocalDate(item.data_competencia) : (item.created_at ? new Date(item.created_at) : new Date());
-      const mon = getMondayOfDate(itemDate);
-      const key = mon.toISOString();
+      const itemDate = item.data_competencia ? parseLocalDate(item.data_competencia) : GarraFinancial.getCreatedAtDate(item);
+      const mon = GarraFinancial.getLocalWeekStart(itemDate);
+      const key = GarraFinancial.getLocalWeekKey(itemDate);
+      if (!mon || !key) return;
 
       if (!weeks[key]) {
         weeks[key] = {
@@ -2142,7 +2192,7 @@ async function loadWeeklyClosures() {
           consumablesTotal: 0,
           creditsTotal: 0,
           creditsList: [],
-          isPaid: true
+          isPaid: false
         };
         weeks[key].sunday.setDate(mon.getDate() + 6);
         weeks[key].sunday.setHours(23, 59, 59, 999);
@@ -2153,8 +2203,9 @@ async function loadWeeklyClosures() {
 
     (credits || []).forEach(item => {
       const itemDate = parseLocalDate(item.target_date);
-      const mon = getMondayOfDate(itemDate);
-      const key = mon.toISOString();
+      const mon = GarraFinancial.getLocalWeekStart(itemDate);
+      const key = GarraFinancial.getLocalWeekKey(itemDate);
+      if (!mon || !key) return;
 
       if (!weeks[key]) {
         weeks[key] = {
@@ -2165,7 +2216,7 @@ async function loadWeeklyClosures() {
           consumablesTotal: 0,
           creditsTotal: 0,
           creditsList: [],
-          isPaid: true
+          isPaid: false
         };
         weeks[key].sunday.setDate(mon.getDate() + 6);
         weeks[key].sunday.setHours(23, 59, 59, 999);
@@ -2227,11 +2278,18 @@ function renderWeeklyClosures(weeks) {
   container.innerHTML = '';
   sortedKeys.forEach(key => {
     const week = weeks[key];
-    const gross = week.gross;
-    const discount = gross * 0.10;
-    const consumables = week.consumablesTotal || 0;
-    const credits = week.creditsTotal || 0;
-    const net = gross * 0.90 - consumables + credits;
+    const payment = GarraFinancial.calculateWeeklyRiderPayment(
+      week.gross,
+      week.creditsTotal,
+      week.consumablesTotal,
+    );
+    const {
+      grossAmount,
+      creditsAmount,
+      consumablesAmount,
+      garraFee,
+      net,
+    } = payment;
 
     const fmt = { day: '2-digit', month: '2-digit' };
     const dateRangeLabel = `${week.monday.toLocaleDateString('pt-BR', fmt)} a ${week.sunday.toLocaleDateString('pt-BR', fmt)}`;
@@ -2267,12 +2325,20 @@ function renderWeeklyClosures(weeks) {
           <strong>${week.deliveriesCount}</strong>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+          <span style="color: var(--muted);">Faturamento Bruto:</span>
+          <strong>${formatMoney(grossAmount)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
+          <span style="color: var(--muted);">Taxa Garra (10%):</span>
+          <strong style="color: var(--error);">- ${formatMoney(garraFee)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
           <span style="color: var(--muted);">Consumíveis / Vales:</span>
-          <strong style="color: var(--error);">- ${formatMoney(consumables)}</strong>
+          <strong style="color: var(--error);">- ${formatMoney(consumablesAmount)}</strong>
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 0.85rem;">
           <span style="color: var(--muted);">Créditos Adicionais:</span>
-          <strong style="color: #10b981;">+ ${formatMoney(credits)}</strong>
+          <strong style="color: #10b981;">+ ${formatMoney(creditsAmount)}</strong>
         </div>
         ${creditsDetailHtml}
         <hr style="border: 0; border-top: 1px solid var(--border); margin: 4px 0;">

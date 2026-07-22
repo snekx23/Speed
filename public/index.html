@@ -1061,8 +1061,28 @@
                     <h2 id="extract-total-services" style="margin: 8px 0 0 0; color: #fff; font-weight: 700; font-size: 1.8rem;">0</h2>
                   </div>
                   <div class="metric-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
-                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Total de Repasses</span>
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Faturamento Bruto</span>
+                    <h2 id="extract-total-gross" style="margin: 8px 0 0 0; color: #fff; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(239,68,68,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Taxa Garra (10%)</span>
+                    <h2 id="extract-total-fee" style="margin: 8px 0 0 0; color: #ef4444; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Repasse das Entregas</span>
                     <h2 id="extract-total-payout" style="margin: 8px 0 0 0; color: var(--primary); font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(239,68,68,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Consumíveis / Vales</span>
+                    <h2 id="extract-total-consumables" style="margin: 8px 0 0 0; color: #ef4444; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(16,185,129,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Créditos</span>
+                    <h2 id="extract-total-credits" style="margin: 8px 0 0 0; color: #10b981; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
+                  </div>
+                  <div class="metric-card" style="background: rgba(16,185,129,0.02); border: 1px solid var(--border-color); padding: 16px; border-radius: var(--border-radius-md);">
+                    <span style="font-size: 0.85rem; color: var(--color-text-muted);">Saldo Líquido</span>
+                    <h2 id="extract-total-net" style="margin: 8px 0 0 0; color: #10b981; font-weight: 700; font-size: 1.8rem;">R$ 0,00</h2>
                   </div>
                 </div>
 
@@ -1151,6 +1171,7 @@
                         <th>Código</th>
                         <th>Estabelecimento</th>
                         <th>Destinatário</th>
+                        <th>Endereço</th>
                         <th>Valor Bruto</th>
                         <th>Data / Hora</th>
                         <th>Status</th>
@@ -1159,6 +1180,7 @@
                     <tbody id="client-extract-table-body"></tbody>
                   </table>
                 </div>
+                <div id="extract-adjustments-list" style="margin-top: 18px;"></div>
               </div>
             </div>
           </div>
@@ -2489,6 +2511,7 @@
   </button>
 
   <script src="config.js"></script>
+  <script src="financial-calculations.js?v=20260722_v1"></script>
   <script src="app.js?v=20260717_v6"></script>
 </body>
 </html>
